@@ -189,14 +189,26 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    # pythonw has no console/stdout; redirect to app.log so diagnostics survive.
+    if sys.stdout is None or getattr(sys.stdout, "write", None) is None:
+        try:
+            log_path = os.path.join(HERE, "app.log")
+            fh = open(log_path, "a", encoding="utf-8")
+            sys.stdout = fh
+            sys.stderr = fh
+        except Exception:
+            pass
+
     db.init_db(DB_PATH)
     _update_sync_state()
-    # 写 PID 文件，供 stop.bat 精确停止
+
+    # Write PID file for stop.bat
     try:
         with open(os.path.join(HERE, "data", "app.pid"), "w", encoding="utf-8") as f:
             f.write(str(os.getpid()))
     except Exception:
         pass
+
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print("欠料看板 APP 已启动： http://localhost:%d" % PORT)
     print("按 Ctrl+C 停止。")
