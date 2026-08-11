@@ -188,6 +188,28 @@ class Handler(BaseHTTPRequestHandler):
         pass  # 静默
 
 
+def _seed_if_empty():
+    """云端环境无 wecom-cli，db 为空时从内置 seed.sql 快照初始化数据。"""
+    try:
+        n = len(db.get_all(DB_PATH))
+    except Exception:
+        n = 0
+    if n > 0:
+        return
+    seed = os.path.join(HERE, "data", "seed.sql")
+    if not os.path.exists(seed):
+        return
+    import sqlite3
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.executescript(open(seed, encoding="utf-8").read())
+        conn.commit()
+        conn.close()
+        print("seed.sql 初始化完成（云端使用本地同步快照）")
+    except Exception as e:
+        print("seed 初始化失败:", e)
+
+
 def main():
     # pythonw has no console/stdout; redirect to app.log so diagnostics survive.
     if sys.stdout is None or getattr(sys.stdout, "write", None) is None:
@@ -200,6 +222,7 @@ def main():
             pass
 
     db.init_db(DB_PATH)
+    _seed_if_empty()
     _update_sync_state()
 
     # Write PID file for stop.bat
