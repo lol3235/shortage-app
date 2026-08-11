@@ -1,0 +1,4 @@
+# 本应用仅使用 Python 标准库，无第三方依赖。
+# 部署到 PaaS（Render / Railway / HuggingFace Spaces / CloudStudio）时保留此文件即可。
+# 启动命令： python app.py
+# 应用会自动读取环境变量 PORT（PaaS 注入），本地默认 8765。

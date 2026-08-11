@@ -209,8 +209,10 @@ def main():
     except Exception:
         pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print("欠料看板 APP 已启动： http://localhost:%d" % PORT)
+    # Bind to 0.0.0.0 so the app is reachable beyond localhost (LAN / PaaS).
+    # PORT is taken from $PORT (PaaS injects this); falls back to 8765 locally.
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    print("欠料看板 APP 已启动： http://0.0.0.0:%d" % PORT)
     print("按 Ctrl+C 停止。")
     try:
         server.serve_forever()
