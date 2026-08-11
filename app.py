@@ -23,7 +23,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(HERE, "static")
 DB_PATH = os.path.join(HERE, "data", "shortage.db")
 SEED_PATH = os.path.join(HERE, "data", "seed.sql")
-PORT = int(os.environ.get("PORT", "7860"))
+PORT = int(os.environ.get("PORT", "8765"))
 
 AUTO_SYNC_INTERVAL = int(os.environ.get("AUTO_SYNC_INTERVAL", "30"))
 AUTO_GIT_PUSH = os.environ.get("AUTO_GIT_PUSH", "1").lower() in ("1", "true", "yes")
