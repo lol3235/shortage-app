@@ -15,7 +15,29 @@ from collections import Counter, defaultdict
 import db
 
 SHORTAGE_URL = "https://doc.weixin.qq.com/sheet/e3_AMoAPwakAAsCNQYtN09SBSmC1ve5p?scode=AD4A2AeHABEs5wHQYX"
-WECOM_CMD = r"C:\Users\Apua\.workbuddy\binaries\node\cli-connector-packages\wecom-cli.cmd"
+
+
+def _detect_wecom_cli():
+    """探测 wecom-cli 路径：环境变量 WECOM_CLI 优先，其次候选路径，最后回退原路径。
+
+    避免 wecom-cli 升级或移动路径后，本地自动同步因 WECOM_CMD 失效而静默跳过。
+    """
+    env = os.environ.get("WECOM_CLI", "").strip()
+    if env and os.path.exists(env):
+        return env
+    cands = [
+        r"C:\Users\Apua\.workbuddy\binaries\node\cli-connector-packages\wecom-cli.cmd",
+        os.path.join(os.environ.get("USERPROFILE", ""), ".workbuddy", "binaries",
+                     "node", "cli-connector-packages", "wecom-cli.cmd"),
+        "wecom-cli.cmd",  # PATH 中的可执行
+    ]
+    for c in cands:
+        if c and os.path.exists(c):
+            return c
+    return cands[0]  # 都不存在时回退原路径，保持原有行为（_auto_sync_loop 会因 exists 跳过）
+
+
+WECOM_CMD = _detect_wecom_cli()
 SYSTEM_CMD = r"C:\Windows\System32\cmd.exe"
 CREATE_NO_WINDOW = 0x08000000
 
@@ -44,6 +66,7 @@ def _run_wecom(args, timeout=60):
     cmd = [SYSTEM_CMD, "/c", WECOM_CMD] + args
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                           encoding="utf-8", errors="replace",
                            creationflags=CREATE_NO_WINDOW, stdin=subprocess.DEVNULL)
     except Exception as e:
         r = type('R', (), {'returncode': -1, 'stdout': '', 'stderr': str(e)})()

@@ -12,12 +12,17 @@ const POST = (path) => fetch(path, { method: 'POST' }).then(r => r.json());
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
+// 自动刷新所需的状态：当前所在模块 + 上一次已知同步时间
+let currentPage = 'overview';
+let lastKnownSync = null;
+
 // ---------- 导航切换 ----------
 document.querySelectorAll('#sidebar li').forEach(li => {
   li.addEventListener('click', () => {
     document.querySelectorAll('#sidebar li').forEach(x => x.classList.remove('active'));
     li.classList.add('active');
     const page = li.dataset.page;
+    currentPage = page;
     $('page-title').textContent = li.textContent;
     document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
     $('page-' + page).classList.remove('hidden');
@@ -186,7 +191,37 @@ function loadSettings() {
   });
 }
 
+// ---------- 当前页自动刷新（准实时） ----------
+function refreshCurrent() {
+  if (currentPage === 'overview') return loadOverview();
+  if (currentPage === 'sync') return refreshSyncInfo();
+  if (currentPage === 'settings') return loadSettings();
+  // 查询类页面：仅当输入框有内容时才自动重拉，避免无意义抖动
+  const qmap = {
+    search:   ['search-kw',  'btn-search'],
+    project:  ['project-kw', 'btn-project'],
+    material: ['material-kw','btn-material'],
+    brand:    ['brand-kw',   'btn-brand'],
+    eta:      ['eta-kw',     'btn-eta'],
+  };
+  const m = qmap[currentPage];
+  if (m && $(m[0]).value.trim()) $(m[1]).click();
+}
+
 // ---------- 初始化 ----------
 refreshSyncInfo();
-setInterval(refreshSyncInfo, 30000);
+// 每 15 秒检查同步状态：刷新状态文字；若数据库已更新则自动重拉当前页（准实时）
+setInterval(() => {
+  API('/api/sync_status').then(d => {
+    $('sync-info').textContent = '上次同步：' + (d.last_sync || '未同步') + (d.last_count ? `（${d.last_count} 条）` : '');
+    if ($('page-sync') && !$('page-sync').classList.contains('hidden')) {
+      $('sync-progress').textContent = d.syncing ? '同步中…' : (d.error ? '同步失败：' + d.error : '就绪');
+    }
+    // 数据库已更新（且非首次进入）→ 自动重拉当前页，实现界面准实时
+    if (d.last_sync && d.last_sync !== lastKnownSync) {
+      if (lastKnownSync !== null) refreshCurrent();
+      lastKnownSync = d.last_sync;
+    }
+  }).catch(() => {});
+}, 15000);
 loadOverview();
