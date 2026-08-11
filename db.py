@@ -124,6 +124,47 @@ def row_to_item(r):
     return dict(r)
 
 
+def export_seed_sql(db_path=DEFAULT_DB, seed_path=None):
+    """把 shortage_items 全表导出为可重复执行的 INSERT SQL，供 GitHub/Render 初始化。
+
+    按 id 排序，显式列名，一行一条，便于 diff 和版本控制。
+    """
+    if seed_path is None:
+        seed_path = os.path.join(HERE, "data", "seed.sql")
+    cols = ITEM_FIELDS + ["synced_at"]
+    conn = _conn(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT %s FROM shortage_items ORDER BY id" % ", ".join(cols)
+        ).fetchall()
+        lines = [
+            "-- shortage-app seed.sql",
+            "-- generated: %s" % datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "-- rows: %d" % len(rows),
+            "DELETE FROM shortage_items;",
+        ]
+        for r in rows:
+            vals = []
+            for c in cols:
+                v = r[c]
+                if v is None:
+                    vals.append("NULL")
+                elif isinstance(v, (int, float)):
+                    vals.append(str(v))
+                else:
+                    vals.append("'%s'" % str(v).replace("'", "''"))
+            lines.append(
+                "INSERT INTO shortage_items (%s) VALUES (%s);"
+                % (", ".join(cols), ", ".join(vals))
+            )
+        with open(seed_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write("\n".join(lines))
+            f.write("\n")
+        return len(rows)
+    finally:
+        conn.close()
+
+
 if __name__ == "__main__":
     c = init_db()
     c.close()

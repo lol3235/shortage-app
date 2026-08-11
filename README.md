@@ -22,8 +22,35 @@
 5. 部署完成后得到公网 URL，任何人浏览器打开即用
 
 > 注意：云端环境没有 wecom-cli，无法在线同步企微表。
-> 仓库内置的 `data/seed.sql` 是本地同步的快照，作为云端初始数据（首次启动自动导入）；
-> 如需更新数据，请在本机同步后重新生成 seed.sql 并推送到 GitHub，再触发 Render 重新部署。
+> 仓库内置的 `data/seed.sql` 是本地同步的快照，作为云端初始数据（首次启动自动导入）。
+
+## 自动同步 + 自动推送（推荐）
+
+本地运行的实例可以定时从企微拉取最新数据，并自动把 `data/seed.sql` 推送到 GitHub，Render 检测到 `main` 分支有新提交后会自动重新部署。
+
+1. 生成 GitHub Personal Access Token（classic，勾选 `repo` 权限）
+2. 在项目根目录创建 `.env` 文件：
+
+```env
+GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+AUTO_SYNC_INTERVAL=30
+AUTO_GIT_PUSH=1
+```
+
+3. 双击 `start.bat` 启动。后台会每 30 秒执行一次同步，数据有变化时自动 commit/push `data/seed.sql`
+4. Render 上对应的 Web Service 会自动更新（Blueprint 已开启自动同步）
+
+> `.env` 已被 `.gitignore` 排除，不会误提交到仓库。TOKEN 泄露后请立即到 GitHub 撤销并重新生成。
+
+### 环境变量说明
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `PORT` | `7860` | 服务端口，PaaS 会自动注入 |
+| `AUTO_SYNC_INTERVAL` | `30` | 自动同步间隔（秒），`0` 表示关闭 |
+| `AUTO_GIT_PUSH` | `1` | 数据变化后是否自动 push seed.sql，`0` 关闭 |
+| `GITHUB_TOKEN` | - | 用于自动 push 的 GitHub 令牌 |
+
 
 ## 文档
 - `docs/PRD.md`：产品需求文档

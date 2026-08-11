@@ -7,3 +7,4 @@ data/app.pid
 data/api_test.db
 data/test_tmp.db
 *.db
+.env
