@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>欠料看板</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 左侧导航 -->
+    <nav id="sidebar">
+      <div class="brand">欠料看板</div>
+      <ul>
+        <li data-page="overview" class="active">总览</li>
+        <li data-page="search">查询</li>
+        <li data-page="project">项目汇总</li>
+        <li data-page="material">物料汇总</li>
+        <li data-page="brand">品牌汇总</li>
+        <li data-page="eta">交期对比</li>
+        <li data-page="sync">数据同步</li>
+        <li data-page="settings">设置</li>
+      </ul>
+    </nav>
+
+    <!-- 右侧主区 -->
+    <div id="main">
+      <header id="topbar">
+        <span id="page-title">总览</span>
+        <div class="top-actions">
+          <button id="btn-sync-top">🔄 同步</button>
+          <span id="sync-info">—</span>
+        </div>
+      </header>
+      <section id="content">
+
+        <!-- 总览 -->
+        <div class="page" id="page-overview">
+          <div id="cards" class="cards"></div>
+          <div class="panel">
+            <h3>紧急度分布</h3>
+            <div id="by-status"></div>
+          </div>
+          <div class="panel">
+            <h3>项目欠料 TOP10</h3>
+            <div id="by-project"></div>
+          </div>
+        </div>
+
+        <!-- 查询 -->
+        <div class="page hidden" id="page-search">
+          <div class="toolbar">
+            <input id="search-kw" placeholder="如 富士金品牌 / 巨茂项目 / B07-05-00-03-10">
+            <select id="search-type">
+              <option value="auto">自动</option>
+              <option value="项目">项目</option>
+              <option value="物料编码">物料编码</option>
+              <option value="物料名称">物料名称</option>
+              <option value="品牌">品牌</option>
+            </select>
+            <button id="btn-search">搜索</button>
+          </div>
+          <div id="search-result"></div>
+        </div>
+
+        <!-- 项目汇总 -->
+        <div class="page hidden" id="page-project">
+          <div class="toolbar">
+            <input id="project-kw" placeholder="项目名称或编码，如 巨茂 / 西安">
+            <button id="btn-project">汇总</button>
+          </div>
+          <div id="project-result"></div>
+        </div>
+
+        <!-- 物料汇总 -->
+        <div class="page hidden" id="page-material">
+          <div class="toolbar">
+            <input id="material-kw" placeholder="物料编码或名称，如 B07-05-00-03-10 / 减压阀">
+            <button id="btn-material">汇总</button>
+          </div>
+          <div id="material-result"></div>
+        </div>
+
+        <!-- 品牌汇总 -->
+        <div class="page hidden" id="page-brand">
+          <div class="toolbar">
+            <input id="brand-kw" placeholder="品牌名称，如 富士金 / Siemens">
+            <button id="btn-brand">汇总</button>
+          </div>
+          <div id="brand-result"></div>
+        </div>
+
+        <!-- 交期对比 -->
+        <div class="page hidden" id="page-eta">
+          <div class="toolbar">
+            <input id="eta-kw" placeholder="项目或物料，如 西安项目 / B07-05-00-03-10">
+            <button id="btn-eta">判定</button>
+          </div>
+          <div id="eta-result"></div>
+        </div>
+
+        <!-- 数据同步 -->
+        <div class="page hidden" id="page-sync">
+          <div class="panel">
+            <h3>数据同步</h3>
+            <button id="btn-sync">立即同步</button>
+            <div id="sync-progress" class="progress"></div>
+            <pre id="sync-log"></pre>
+          </div>
+        </div>
+
+        <!-- 设置 -->
+        <div class="page hidden" id="page-settings">
+          <div class="panel">
+            <h3>设置</h3>
+            <div id="settings-content"></div>
+          </div>
+        </div>
+
+      </section>
+    </div>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

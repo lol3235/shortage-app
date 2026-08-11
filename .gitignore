@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.log
+wecom_debug.log
+data/app.pid
+data/*.db
