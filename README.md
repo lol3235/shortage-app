@@ -1,36 +1,30 @@
-# 欠料看板本地 APP
+# 欠料看板（Shortage Board）
 
-本地运行的浏览器应用，用于查询企业微信欠料表。数据从企微在线表同步到**本地 SQLite**，重启电脑不丢失。
+本地化欠料跟踪看板。支持总览、按项目 / 物料 / 品牌汇总、交期对比、状态过滤。
+数据源为企微欠料在线表，本地 SQLite 持久化（重启不丢）。
 
-## 启动 / 停止
-- 双击 `start.bat`：启动服务并打开浏览器 http://localhost:8765
-- 双击 `stop.bat`：停止服务
+## 技术栈
+- 后端：`app.py`（Python 标准库 `http.server`，零第三方依赖）
+- 数据库：`data/shortage.db`（SQLite）
+- 前端：`static/`（原生 HTML / CSS / JS）
+- 同步：`sync.py`（调用 wecom-cli 拉取企微欠料表并解析入库）
 
-## 功能
-- 总览：条数、合计数量、紧急度分布、项目 TOP
-- 查询：按 项目 / 物料编码 / 物料名称 / 品牌 检索（支持口语，如「富士金品牌」「巨茂项目」）
-- 项目汇总：按项目聚合，以物料编码为单位给明细
-- 物料汇总：按物料编码跨项目汇总总数
-- 品牌汇总：按品牌汇总欠料量、物料/项目分布
-- 交期对比：用「预计交期」对比「期望交期」判定来不来得及
-- 数据同步：从企微拉取最新数据入库
-- 设置：数据源、状态过滤关键词、分表条数
+## 本地运行
+1. 双击 `start.bat` 启动（自动打开浏览器 http://localhost:8765 ）
+2. 点右上角「🔄 同步」从企微拉取最新数据
+3. 双击 `stop.bat` 停止
 
-## 状态过滤
-标记「已解决/归档/已完成/关闭/已到货/取消/作废」等状态的条目（含隐藏行/分表）在所有查询中自动排除。
+## 部署到 Render（公网访问）
+1. 把本仓库推到 GitHub（已推送：`github.com/lol3235/shortage-app`）
+2. 打开 https://dashboard.render.com → New → Blueprint
+3. 连接你的 GitHub 仓库 `lol3235/shortage-app`
+4. Render 读取 `render.yaml` 自动构建，启动命令 `python app.py`（监听 `$PORT`）
+5. 部署完成后得到公网 URL，任何人浏览器打开即用
 
-## 开发
-- 仅依赖 Python 3 标准库（http.server + sqlite3）
-- 测试：`python run_tests.py`
-- 数据管道逻辑移植自原 shortage_tool（独立文件夹，未改动原文件）
+> 注意：云端环境没有 wecom-cli，无法在线同步企微表。
+> 仓库内置的 `data/shortage.db` 是本地同步的快照，作为云端初始数据；
+> 如需更新，请在本机同步后重新推送该文件到 GitHub 并触发 Render 重新部署。
 
-## 目录
-```
-db.py        本地数据库层
-sync.py      企微拉取 + 解析 + 写库
-logic.py     查询/汇总/交期对比（纯函数）
-app.py       本地 HTTP 服务 + API
-static/      前端（index.html / style.css / app.js）
-docs/        PRD.md / dev_plan.md
-tests/       单元测试
-```
+## 文档
+- `docs/PRD.md`：产品需求文档
+- `docs/dev_plan.md`：开发计划

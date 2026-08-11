@@ -3,4 +3,7 @@ __pycache__/
 *.log
 wecom_debug.log
 data/app.pid
-data/*.db
+data/api_test.db
+data/test_tmp.db
+*.db
+!data/shortage.db

@@ -18,7 +18,7 @@ import sync
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(HERE, "static")
 DB_PATH = os.path.join(HERE, "data", "shortage.db")
-PORT = int(os.environ.get("PORT", "8765"))
+PORT = int(os.environ.get("PORT", "7860"))
 
 # 同步状态（线程安全）
 _sync_lock = threading.Lock()
