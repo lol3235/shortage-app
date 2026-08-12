@@ -44,6 +44,10 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #f
 .bar-fill { height: 100%; background: #2563eb; border-radius: 4px; }
 .bar-row .val { width: 60px; text-align: right; color: #374151; }
 
+/* 项目 TOP10 可点击链接 */
+.project-link { color: #2563eb; text-decoration: none; cursor: pointer; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-link:hover { text-decoration: underline; }
+
 /* 表格 */
 table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
 th, td { border: 1px solid #e5e7eb; padding: 7px 9px; text-align: left; }

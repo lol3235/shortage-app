@@ -32,6 +32,19 @@ document.querySelectorAll('#sidebar li').forEach(li => {
   });
 });
 
+// ---------- 跳转项目汇总 ----------
+function openProject(name) {
+  document.querySelectorAll('#sidebar li').forEach(x => x.classList.remove('active'));
+  const li = document.querySelector('#sidebar li[data-page="project"]');
+  if (li) li.classList.add('active');
+  currentPage = 'project';
+  $('page-title').textContent = '项目汇总';
+  document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+  $('page-project').classList.remove('hidden');
+  $('project-kw').value = name;
+  $('btn-project').click();
+}
+
 // ---------- 总览 ----------
 function loadOverview() {
   API('/api/overview').then(d => {
@@ -46,7 +59,7 @@ function loadOverview() {
        <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, st[k] / (d.total||1) * 100)}%"></div></div>
        <div class="val">${st[k]}</div></div>`).join('') || '<p class="muted">无数据</p>';
     $('by-project').innerHTML = (d.by_project || []).map(p =>
-      `<div class="bar-row"><div class="name" title="${esc(p.project)}">${esc(p.project)}</div>
+      `<div class="bar-row"><a class="name project-link" href="javascript:void(0)" data-project="${esc(p.project)}" onclick="openProject(this.dataset.project);return false;" title="${esc(p.project)}">${esc(p.project)}</a>
        <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, p.count / (d.by_project[0]?.count||1) * 100)}%"></div></div>
        <div class="val">${p.count}</div></div>`).join('') || '<p class="muted">无数据</p>';
   }).catch(e => $('cards').innerHTML = `<p class="error">加载失败：${esc(e)}</p>`);
