@@ -300,8 +300,8 @@ def _auto_sync_loop():
     """后台循环：定时同步 -> 导出 seed.sql -> 有变化则 push -> Render 自动重部署。"""
     if AUTO_SYNC_INTERVAL <= 0:
         return
-    if not os.path.exists(sync.WECOM_CMD):
-        print("[auto-sync] 未检测到 wecom-cli，跳过自动同步（云端 Render 无需此步骤）")
+    if not os.path.exists(sync.WECOM_CMD) and not sync._use_api_mode():
+        print("[auto-sync] 未检测到 wecom-cli 且未配置 API 凭证，跳过自动同步")
         return
     print("[auto-sync] 每 %d 秒自动同步一次；数据变化时推送 seed.sql" % AUTO_SYNC_INTERVAL)
     while True:

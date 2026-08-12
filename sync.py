@@ -3,6 +3,12 @@
 
 逻辑移植自原 shortage_tool/refresh_data.py（仅复制逻辑，未改动原文件）。
 新增 sync_to_db() 把解析结果写入 db.py 的 SQLite。
+
+数据源策略（v1.1）：
+- 默认：本地 wecom-cli（依赖企业微信桌面端登录态）。
+- 云端直连模式：当配置了企微开放 API 凭证
+  (WECOM_API_CORP_ID / WECOM_API_CORP_SECRET / WECOM_TABLE_DOCID) 时，
+  优先用 API 拉取，失败自动回退 wecom-cli；无凭证时行为与旧版完全一致。
 """
 import json
 import re
@@ -222,11 +228,69 @@ def parse_markdown(md):
     return items
 
 
+def _use_api_mode():
+    """是否配置了企微开放 API 凭证（corpid/secret/表 docid），用于云端直连。"""
+    cid = os.environ.get("WECOM_API_CORP_ID", "").strip()
+    sec = os.environ.get("WECOM_API_CORP_SECRET", "").strip()
+    did = os.environ.get("WECOM_TABLE_DOCID", "").strip()
+    return bool(cid and sec and did)
+
+
+def _fetch_via_api(timeout=30):
+    """企微开放 API 拉取在线表内容（云端直连模式）。
+
+    流程：corpid+corpsecret 换取 access_token -> 读取文档内容。
+    注意：在线表格(sheet)的读取接口以凭证到位后实测为准；此处为可插拔骨架，
+    失败时抛异常，由 sync_to_db 回退 wecom-cli 或保留旧数据，绝不静默污染。
+    """
+    import urllib.request
+    cid = os.environ.get("WECOM_API_CORP_ID", "").strip()
+    sec = os.environ.get("WECOM_API_CORP_SECRET", "").strip()
+    did = os.environ.get("WECOM_TABLE_DOCID", "").strip()
+    if not (cid and sec and did):
+        raise RuntimeError("缺少企微 API 凭证环境变量(WECOM_API_CORP_ID/SECRET/TABLE_DOCID)")
+    # 1) 获取 access_token
+    token_url = "https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=%s&corpsecret=%s" % (cid, sec)
+    try:
+        with urllib.request.urlopen(token_url, timeout=timeout) as resp:
+            tj = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        raise RuntimeError("获取 access_token 失败: %s" % e)
+    if tj.get("errcode", 0) != 0:
+        raise RuntimeError("获取 access_token 错误: %s %s" % (tj.get("errcode"), tj.get("errmsg")))
+    token = tj["access_token"]
+    # 2) 读取文档内容（在线表接口以实测为准，先按文档内容接口尝试）
+    doc_url = "https://qyapi.weixin.qq.com/cgi-bin/doc/v2/get_doc_content?access_token=%s" % token
+    payload = json.dumps({"docid": did}).encode("utf-8")
+    req = urllib.request.Request(doc_url, data=payload, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            dj = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        raise RuntimeError("读取文档内容失败: %s" % e)
+    if dj.get("errcode", 0) != 0:
+        raise RuntimeError("读取文档内容错误: %s %s" % (dj.get("errcode"), dj.get("errmsg")))
+    # 返回文本/markdown 供 parse_markdown 解析
+    return dj.get("content", "") or dj.get("markdown", "")
+
+
 def sync_to_db(offline_md=None, db_path=None):
-    """拉取(或离线)并解析，写入 SQLite。返回 (条数, synced_at)。失败抛异常（保留旧数据）。"""
+    """拉取(或离线)并解析，写入 SQLite。返回 (条数, synced_at)。失败抛异常（保留旧数据）。
+
+    数据源：offline_md(测试) > 企微 API(若配凭证) > 本地 wecom-cli。
+    """
     if db_path is None:
         db_path = db.DEFAULT_DB
-    md = open(offline_md, encoding="utf-8", errors="replace").read() if offline_md else fetch_markdown()
+    if offline_md:
+        md = open(offline_md, encoding="utf-8", errors="replace").read()
+    elif _use_api_mode():
+        try:
+            md = _fetch_via_api()
+        except Exception as e:
+            print("[sync] 企微 API 拉取失败，回退 wecom-cli: %s" % e)
+            md = fetch_markdown()
+    else:
+        md = fetch_markdown()
     items = parse_markdown(md)
     from datetime import datetime
     synced_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -237,7 +301,7 @@ def sync_to_db(offline_md=None, db_path=None):
 if __name__ == "__main__":
     offline = None
     for a in sys.argv[1:]:
-        if a.startswith("--offline"):
-            offline = a.split("=", 1)[1] if "=" in a else sys.argv[sys.argv.index(a) + 1]
+        if a.startswith("--offline="):
+            offline = a.split("=", 1)[1]
     n, t = sync_to_db(offline_md=offline)
     print("同步完成：%d 条 @ %s" % (n, t))
