@@ -8,3 +8,6 @@ data/api_test.db
 data/test_tmp.db
 *.db
 .env
+.backup/
+.workbuddy/
+_hermes_*.txt
