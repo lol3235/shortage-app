@@ -85,8 +85,8 @@ $('btn-project').addEventListener('click', () => {
     let h = `<p>共 <b>${d.rows}</b> 条，合计欠料 <b>${d.total_qty}</b></p>`;
     h += `<p class="muted">按紧急度：${Object.entries(d.by_status||{}).map(([k,v])=>`${k}:${v}`).join(' / ')||'—'}</p>`;
     h += '<h3 style="margin:12px 0 6px">按物料编码汇总</h3>';
-    h += rowsTable(d.by_material.map(m => ({ mc: m.mc, name: m.name, qty: m.qty, status: Object.entries(m.status).map(([k,v])=>`${k}:${v}`).join('/') })),
-      [{ key: 'mc', label: '物料编码' }, { key: 'name', label: '名称' }, { key: 'qty', label: '合计数量' }, { key: 'status', label: '紧急度' }]);
+    h += rowsTable(d.by_material.map(m => ({ mc: m.mc, name: m.name, brand: m.brand, qty: m.qty, status: Object.entries(m.status).map(([k,v])=>`${k}:${v}`).join('/') })),
+      [{ key: 'mc', label: '物料编码' }, { key: 'name', label: '名称' }, { key: 'brand', label: '品牌' }, { key: 'qty', label: '合计数量' }, { key: 'status', label: '紧急度' }]);
     $('project-result').innerHTML = h;
   });
 });

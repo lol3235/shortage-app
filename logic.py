@@ -89,19 +89,32 @@ def project_summary(items, kw):
     rows = [i for i in items if k in str(i.get("项目") or i.get("项目编码") or "").lower()]
     if not rows:
         return {"error": "未找到项目「%s」的欠料" % kw}
-    by_material = defaultdict(lambda: {"qty": 0, "name": "", "status": Counter()})
+    by_material = defaultdict(lambda: {"qty": 0, "name": "", "status": Counter(), "brands": Counter()})
     for i in rows:
         mc = i.get("物料编码") or "未知编码"
         by_material[mc]["qty"] += int(i.get("欠料数量") or 0)
         by_material[mc]["name"] = i.get("物料名称") or ""
         by_material[mc]["status"][i.get("eta_status", "其他")] += 1
+        b = (i.get("品牌") or "").strip()
+        if b:
+            by_material[mc]["brands"][b] += 1
+
+    def _pick_brand(counter):
+        if not counter:
+            return "—"
+        # 取数量最多的品牌；若前两名并列，则并列显示
+        top = counter.most_common(2)
+        if len(top) == 2 and top[0][1] == top[1][1]:
+            return "/".join(sorted([top[0][0], top[1][0]]))
+        return top[0][0]
+
     return {
         "keyword": kw,
         "rows": len(rows),
         "total_qty": sum(int(i.get("欠料数量") or 0) for i in rows),
         "by_status": dict(Counter(i.get("eta_status", "其他") for i in rows)),
         "by_material": sorted(
-            [{"mc": mc, "name": info["name"], "qty": info["qty"],
+            [{"mc": mc, "name": info["name"], "qty": info["qty"], "brand": _pick_brand(info["brands"]),
               "status": dict(info["status"])} for mc, info in by_material.items()],
             key=lambda x: -x["qty"])[:50],
     }
