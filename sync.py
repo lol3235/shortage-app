@@ -357,6 +357,10 @@ def sync_to_db(offline_md=None, db_path=None):
     from datetime import datetime
     synced_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     db.upsert_items(items, synced_at, path=db_path)
+    # 重新应用人工覆盖记录，确保已确认到货/已解决的行不会被同步刷回
+    applied = db.apply_manual_overrides(path=db_path)
+    if applied:
+        print("[sync] 已应用 %d 条人工覆盖记录" % applied)
     return len(items), synced_at
 
 

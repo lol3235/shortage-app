@@ -160,6 +160,47 @@ def api_settings():
     }
 
 
+def api_overrides():
+    return {"overrides": db.list_manual_overrides(DB_PATH)}
+
+
+def api_resolve(body):
+    project_kw = (body.get("project") or "").strip()
+    material_code = (body.get("material_code") or "").strip()
+    # 用关键词定位到实际项目全名，避免前端只传了简称导致覆盖匹配不上
+    project_name = project_kw
+    if project_kw and material_code:
+        pk = project_kw.lower()
+        for i in _load_active():
+            if ((i.get("项目") or "").lower() == pk or
+                pk in (i.get("项目") or "").lower()):
+                if (i.get("物料编码") or "").strip() == material_code:
+                    project_name = i.get("项目") or project_kw
+                    break
+    applied = db.add_manual_override(
+        project_name, material_code,
+        body.get("brand", ""), body.get("note", "人工确认到货"),
+        body.get("action", "resolved"), path=DB_PATH)
+    return {"ok": True, "applied": applied}
+
+
+def api_resolve_text(body):
+    result = logic.resolve_text(_load_active(), body.get("project"), body.get("text"))
+    if "error" in result:
+        return {"ok": False, "error": result["error"]}
+    overrides = []
+    for m in result["matched"]:
+        overrides.append({
+            "project": m["项目"] or body.get("project"),
+            "material_code": m["物料编码"],
+            "brand": m["品牌"],
+            "action": result["action"],
+            "note": body.get("text"),
+        })
+    applied = db.add_manual_overrides_batch(overrides, path=DB_PATH)
+    return {"ok": True, "applied": applied, "matched": len(overrides)}
+
+
 ROUTES = {
     "/api/overview": api_overview,
     "/api/search": api_search,
@@ -169,6 +210,7 @@ ROUTES = {
     "/api/eta": api_eta,
     "/api/sync_status": api_sync_status,
     "/api/settings": api_settings,
+    "/api/overrides": api_overrides,
 }
 
 
@@ -180,6 +222,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _read_body(self):
+        length = int(self.headers.get("Content-Length", 0))
+        return self.rfile.read(length).decode("utf-8", errors="replace")
 
     def _send_file(self, path, ctype):
         try:
@@ -242,6 +288,20 @@ class Handler(BaseHTTPRequestHandler):
             # 后台线程执行
             threading.Thread(target=do_sync, daemon=True).start()
             self._send_json({"accepted": True, "message": "已开始同步"})
+            return
+        if parsed.path == "/api/resolve":
+            try:
+                body = json.loads(self._read_body())
+                self._send_json(api_resolve(body))
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, 500)
+            return
+        if parsed.path == "/api/resolve_text":
+            try:
+                body = json.loads(self._read_body())
+                self._send_json(api_resolve_text(body))
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, 500)
             return
         self._send_json({"error": "unknown post"}, 404)
 

@@ -48,6 +48,13 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #f
 .project-link { color: #2563eb; text-decoration: none; cursor: pointer; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-link:hover { text-decoration: underline; }
 
+/* 快速到货登记 */
+.quick-register { margin-bottom: 18px; }
+.quick-register h3 { font-size: 15px; margin-bottom: 6px; }
+.quick-register .toolbar { margin-bottom: 0; }
+.btn-resolve { background: #16a34a; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.btn-resolve:hover { background: #15803d; }
+
 /* 表格 */
 table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
 th, td { border: 1px solid #e5e7eb; padding: 7px 9px; text-align: left; }

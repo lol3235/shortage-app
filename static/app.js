@@ -8,6 +8,11 @@ const API = (path, params) => {
   return fetch(url).then(r => r.json());
 };
 const POST = (path) => fetch(path, { method: 'POST' }).then(r => r.json());
+const POST_JSON = (path, body) => fetch(path, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+}).then(r => r.json());
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
@@ -15,6 +20,7 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&a
 // 自动刷新所需的状态：当前所在模块 + 上一次已知同步时间
 let currentPage = 'overview';
 let lastKnownSync = null;
+let currentProjectKw = '';
 
 // ---------- 导航切换 ----------
 document.querySelectorAll('#sidebar li').forEach(li => {
@@ -91,16 +97,64 @@ $('btn-search').addEventListener('click', () => {
 });
 
 // ---------- 项目汇总 ----------
+function refreshProject() {
+  if (currentProjectKw) $('btn-project').click();
+}
+
+function resolveOne(project, mc, brand, name) {
+  const note = `确认到货：${name || mc}`;
+  POST_JSON('/api/resolve', { project, material_code: mc, brand, note, action: 'resolved' }).then(r => {
+    if (!r.ok) { alert('登记失败：' + (r.error || '未知错误')); return; }
+    refreshProject();
+    loadOverview();
+  });
+}
+
+function renderProjectTable(rows) {
+  if (!rows || !rows.length) return '<p class="muted">无数据</p>';
+  const head = '<tr><th>物料编码</th><th>名称</th><th>品牌</th><th>合计数量</th><th>紧急度</th><th>操作</th></tr>';
+  const body = rows.map(m => {
+    const status = Object.entries(m.status || {}).map(([k,v])=>`${k}:${v}`).join('/') || '—';
+    return `<tr>
+      <td>${esc(m.mc)}</td>
+      <td>${esc(m.name)}</td>
+      <td>${esc(m.brand)}</td>
+      <td>${esc(m.qty)}</td>
+      <td>${esc(status)}</td>
+      <td><button class="btn-resolve" onclick="resolveOne('${esc(currentProjectKw).replace(/'/g,'\\\'')}', '${esc(m.mc).replace(/'/g,'\\\'')}', '${esc(m.brand).replace(/'/g,'\\\'')}', '${esc(m.name).replace(/'/g,'\\\'')}')">确认到货</button></td>
+    </tr>`;
+  }).join('');
+  return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
+
 $('btn-project').addEventListener('click', () => {
   const kw = $('project-kw').value.trim();
+  currentProjectKw = kw;
   API('/api/project', { kw }).then(d => {
     if (d.error) { $('project-result').innerHTML = `<p class="error">${esc(d.error)}</p>`; return; }
     let h = `<p>共 <b>${d.rows}</b> 条，合计欠料 <b>${d.total_qty}</b></p>`;
     h += `<p class="muted">按紧急度：${Object.entries(d.by_status||{}).map(([k,v])=>`${k}:${v}`).join(' / ')||'—'}</p>`;
     h += '<h3 style="margin:12px 0 6px">按物料编码汇总</h3>';
-    h += rowsTable(d.by_material.map(m => ({ mc: m.mc, name: m.name, brand: m.brand, qty: m.qty, status: Object.entries(m.status).map(([k,v])=>`${k}:${v}`).join('/') })),
-      [{ key: 'mc', label: '物料编码' }, { key: 'name', label: '名称' }, { key: 'brand', label: '品牌' }, { key: 'qty', label: '合计数量' }, { key: 'status', label: '紧急度' }]);
+    h += renderProjectTable(d.by_material || []);
     $('project-result').innerHTML = h;
+  });
+});
+
+$('btn-resolve-text').addEventListener('click', () => {
+  const text = $('resolve-text').value.trim();
+  const kw = $('project-kw').value.trim();
+  if (!text) { $('resolve-msg').innerHTML = '<span class="error">请输入登记内容</span>'; return; }
+  if (!kw) { $('resolve-msg').innerHTML = '<span class="error">请先在「项目汇总」里查询一个项目</span>'; return; }
+  $('resolve-msg').innerHTML = '<span class="muted">登记中…</span>';
+  POST_JSON('/api/resolve_text', { project: kw, text }).then(r => {
+    if (!r.ok) {
+      $('resolve-msg').innerHTML = `<span class="error">登记失败：${esc(r.error || '未知错误')}</span>`;
+      return;
+    }
+    $('resolve-text').value = '';
+    $('resolve-msg').innerHTML = `<span class="tag ok">已登记 ${r.matched} 项，影响 ${r.applied} 条</span>`;
+    refreshProject();
+    loadOverview();
   });
 });
 

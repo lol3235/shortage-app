@@ -16,13 +16,16 @@ RESOLVED_KEYWORDS = ("已解决", "归档", "已完成", "完成", "已关闭", 
 
 def is_resolved(item):
     s = (item.get("状态") or "").strip()
-    if not s:
-        return False
-    return any(k in s for k in RESOLVED_KEYWORDS)
+    if s and any(k in s for k in RESOLVED_KEYWORDS):
+        return True
+    # 人工覆盖（已到货/已解决）也视为 resolved
+    if (item.get("manual_status") or "").strip():
+        return True
+    return False
 
 
 def filter_active(items):
-    """过滤掉已解决/归档的条目（隐藏行/分表的可靠代理）。"""
+    """过滤掉已解决/归档/人工覆盖的条目（隐藏行/分表的可靠代理）。"""
     return [i for i in items if not is_resolved(i)]
 
 
@@ -262,6 +265,61 @@ def normalize_keyword(text):
     # 剥离残留的分类尾缀（品牌/材料/物料/项目...）
     t = re.sub(TAIL_SUFFIX, "", t).strip()
     return t
+
+
+def resolve_text(items, project_kw, text):
+    """从自然语言登记文本中识别要标记为已到货/已解决的行。
+
+    匹配优先级：物料编码（精确） > 品牌（包含） > 物料名称（包含）。
+    仅在 project_kw 匹配的项目范围内查找。
+    """
+    text = (text or "").strip()
+    if not text:
+        return {"error": "请输入登记内容"}
+    if not project_kw:
+        return {"error": "缺少项目上下文"}
+    pk = normalize_keyword(project_kw).lower()
+    proj_rows = [i for i in items if pk in str(i.get("项目") or i.get("项目编码") or "").lower()]
+    if not proj_rows:
+        return {"error": "未找到项目「%s」" % project_kw}
+
+    action = "resolved"
+    if "取消" in text or "作废" in text:
+        action = "cancelled"
+
+    tokens = [normalize_keyword(t) for t in re.split(r"[，,\s]+", text) if normalize_keyword(t)]
+    matched = []
+    seen = set()
+    for t in tokens:
+        tlow = t.lower()
+        # 1) 物料编码精确匹配
+        if re.match(r'^[A-Za-z][A-Za-z0-9\-]{4,}$', t) and '-' in t:
+            for i in proj_rows:
+                if (i.get("物料编码") or "").lower() == tlow and id(i) not in seen:
+                    matched.append(i); seen.add(id(i))
+            continue
+        # 2) 品牌匹配
+        brand_rows = [i for i in proj_rows if tlow in str(i.get("品牌") or "").lower()]
+        if brand_rows:
+            for i in brand_rows:
+                if id(i) not in seen:
+                    matched.append(i); seen.add(id(i))
+            continue
+        # 3) 物料名称匹配
+        name_rows = [i for i in proj_rows if tlow in str(i.get("物料名称") or "").lower()]
+        if name_rows:
+            for i in name_rows:
+                if id(i) not in seen:
+                    matched.append(i); seen.add(id(i))
+
+    if not matched:
+        return {"error": "无法从「%s」中识别出物料编码、品牌或物料名称" % text}
+    return {
+        "action": action,
+        "matched": [{"项目": i.get("项目"), "项目编码": i.get("项目编码"),
+                     "物料编码": i.get("物料编码"), "物料名称": i.get("物料名称"),
+                     "品牌": i.get("品牌")} for i in matched],
+    }
 
 
 if __name__ == "__main__":

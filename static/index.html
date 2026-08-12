@@ -65,6 +65,15 @@
 
         <!-- 项目汇总 -->
         <div class="page hidden" id="page-project">
+          <div class="panel quick-register">
+            <h3>快速到货登记</h3>
+            <p class="muted">在当前项目内输入，例如：KITZ 已到货 / A01-01-21-11-10 已解决</p>
+            <div class="toolbar" style="margin-bottom:0">
+              <input id="resolve-text" placeholder="例如：KITZ 已到货" style="flex:2">
+              <button id="btn-resolve-text">登记</button>
+            </div>
+            <div id="resolve-msg" style="margin-top:8px;font-size:13px"></div>
+          </div>
           <div class="toolbar">
             <input id="project-kw" placeholder="项目名称或编码，如 巨茂 / 西安">
             <button id="btn-project">汇总</button>
