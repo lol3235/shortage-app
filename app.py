@@ -8,6 +8,7 @@ import os
 import sys
 import json
 import time
+import shutil
 import hashlib
 import threading
 import subprocess
@@ -29,6 +30,31 @@ AUTO_SYNC_INTERVAL = int(os.environ.get("AUTO_SYNC_INTERVAL", "30"))
 AUTO_GIT_PUSH = os.environ.get("AUTO_GIT_PUSH", "1").lower() in ("1", "true", "yes")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO = "https://github.com/lol3235/shortage-app.git"
+
+
+def _find_git():
+    """定位 git 可执行文件：PATH 优先，其次 PortableGit 常见位置。
+
+    pythonw 启动时 PATH 可能不包含 Bash 的 /mingw64/bin，需要主动探测。
+    """
+    found = shutil.which("git")
+    if found:
+        return found
+    cands = [
+        os.path.join(os.environ.get("USERPROFILE", ""), ".workbuddy",
+                     "vendor", "PortableGit", "mingw64", "bin", "git.exe"),
+        os.path.join(os.environ.get("USERPROFILE", ""), ".workbuddy",
+                     "vendor", "PortableGit", "cmd", "git.exe"),
+        os.path.join(os.environ.get("PROGRAMFILES", ""), "Git", "cmd", "git.exe"),
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Git", "cmd", "git.exe"),
+    ]
+    for c in cands:
+        if c and os.path.exists(c):
+            return c
+    return "git"  # 兜底，让 subprocess 自己抛出更清晰的错误
+
+
+GIT_EXE = _find_git()
 
 
 def _load_dotenv():
@@ -286,7 +312,9 @@ def _file_hash(path):
 
 
 def _run_git(cmd, check=True):
-    r = subprocess.run(cmd, cwd=HERE, capture_output=True, text=True,
+    """运行 git 命令，使用探测到的 GIT_EXE 绝对路径，避免 pythonw PATH 不全。"""
+    real_cmd = [GIT_EXE] + cmd[1:]
+    r = subprocess.run(real_cmd, cwd=HERE, capture_output=True, text=True,
                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if check and r.returncode != 0:
         raise RuntimeError("git %s failed: %s" % (cmd[1], r.stderr or r.stdout))
@@ -307,7 +335,7 @@ def _git_push_seed():
         _run_git(["git", "add", "data/seed.sql"])
         msg = "sync: update seed.sql at %s" % datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         commit_r = subprocess.run(
-            ["git", "commit", "-m", msg, "data/seed.sql"],
+            [GIT_EXE, "commit", "-m", msg, "data/seed.sql"],
             cwd=HERE, capture_output=True, text=True,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if commit_r.returncode != 0:
@@ -319,10 +347,11 @@ def _git_push_seed():
         _run_git(["git", "push", "origin", "main"])
         print("[auto-sync] seed.sql 已推送，Render 将自动重新部署")
     except Exception as e:
-        print("[auto-sync] 推送失败: %s" % e)
+        print("[auto-sync] 推送失败: %s (git=%s PATH=%s)" % (
+            e, GIT_EXE, os.environ.get("PATH", "")[:300]))
     finally:
         # 推送完成后恢复不含 token 的 remote URL
-        subprocess.run(["git", "remote", "set-url", "origin", GITHUB_REPO],
+        subprocess.run([GIT_EXE, "remote", "set-url", "origin", GITHUB_REPO],
                        cwd=HERE, capture_output=True)
 
 
