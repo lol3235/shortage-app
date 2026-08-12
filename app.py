@@ -351,8 +351,10 @@ def _git_push_seed():
             e, GIT_EXE, os.environ.get("PATH", "")[:300]))
     finally:
         # 推送完成后恢复不含 token 的 remote URL
+        # 必须带 CREATE_NO_WINDOW，否则会弹出黑窗（git.exe 是控制台程序）
         subprocess.run([GIT_EXE, "remote", "set-url", "origin", GITHUB_REPO],
-                       cwd=HERE, capture_output=True)
+                       cwd=HERE, capture_output=True,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
 def _auto_sync_loop():
@@ -384,7 +386,92 @@ def _auto_sync_loop():
             print("[auto-sync] 异常: %s" % e)
 
 
+def _running_app_instance(pid):
+    """判断给定 PID 是否确实是一个正在运行的 app.py 实例。
+
+    不只看 PID 是否存活（避免 PID 复用/僵尸误判导致 app 起不来），
+    而是校验其命令行确实包含 app.py。
+    """
+    if pid <= 0:
+        return False
+    if os.name != "nt":
+        try:
+            with open("/proc/%d/cmdline" % pid, "rb") as f:
+                data = f.read().decode("utf-8", "ignore")
+            return "app.py" in data
+        except OSError:
+            return False
+    try:
+        import ctypes, struct
+        k = ctypes.windll.kernel32
+        h = k.OpenProcess(0x0400 | 0x0010, False, pid)  # QUERY_INFORMATION | VM_READ
+        if not h:
+            return False
+        try:
+            ntdll = ctypes.windll.ntdll
+            # 必须显式声明调用约定，否则在 app.py 运行环境下参数传递错误导致调用失败
+            ntdll.NtQueryInformationProcess.argtypes = [
+                ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p,
+                ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong)]
+            ntdll.NtQueryInformationProcess.restype = ctypes.c_long
+            buf = ctypes.create_string_buffer(16384)
+            rb = ctypes.c_ulong()
+            if ntdll.NtQueryInformationProcess(h, 60, buf, 16384, ctypes.byref(rb)) != 0:
+                return False
+            length = struct.unpack_from('<H', buf, 0)[0]
+            bufptr = struct.unpack_from('<Q', buf, 8)[0]
+            off = bufptr - ctypes.addressof(buf)
+            if off < 0 or off + length > 16384:
+                return False
+            cmd = buf[off:off + length].decode('utf-16-le', errors='ignore').lower()
+            return "app.py" in cmd
+        finally:
+            k.CloseHandle(h)
+    except Exception:
+        return False
+
+
+def _single_instance():
+    """单实例保护：已存在存活的 app.py 实例则立即退出，避免重复实例 / 端口冲突 / 黑窗。
+
+    优先使用 Windows 命名互斥体（内核级）：创建即原子、无竞态、
+    进程退出自动释放、无残留文件；即便用有窗口的 python.exe 启动也会瞬间退出，
+    不会留下持续黑窗。非 Windows 或互斥体不可用时回退到 pid 文件 + 命令行校验。
+    """
+    if os.name == "nt":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p]
+            kernel32.CreateMutexW.restype = ctypes.c_void_p
+            kernel32.GetLastError.restype = ctypes.c_uint
+            ERROR_ALREADY_EXISTS = 183
+            h = kernel32.CreateMutexW(None, False, "Global\\ShortageAppSingleton")
+            if not h or kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+                # 已有实例持有互斥体：立即退出，不绑定端口、不弹窗
+                sys.exit(0)
+            # 持有互斥体，保持句柄到进程结束（存模块级变量防止被 GC 关闭）
+            _single_instance._handle = h
+            return
+        except Exception:
+            pass  # 互斥体不可用则回退到 pid 文件
+    # 非 Windows 或互斥体异常：pid 文件兜底
+    pid_path = os.path.join(HERE, "data", "app.pid")
+    if not os.path.exists(pid_path):
+        return
+    try:
+        with open(pid_path, "r", encoding="utf-8") as f:
+            old_pid = int(f.read().strip())
+    except (ValueError, OSError):
+        return
+    if _running_app_instance(old_pid):
+        # 已有 app.py 实例在跑：直接退出，不绑定端口、不弹窗
+        sys.exit(0)
+    # 旧 pid 已失效，允许本进程接管（下方 main 会重写 pid 文件）
+
+
 def main():
+    _single_instance()
     # pythonw has no console/stdout; redirect to app.log so diagnostics survive.
     if sys.stdout is None or getattr(sys.stdout, "write", None) is None:
         try:
