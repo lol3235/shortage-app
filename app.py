@@ -245,6 +245,36 @@ def _seed_if_empty():
         print("seed 初始化失败:", e)
 
 
+def _ensure_meta():
+    """兜底修复：db 已有数据但 meta 缺失时，从 shortage_items 反推 last_sync / last_count。"""
+    try:
+        meta = db.get_meta(DB_PATH)
+        if meta.get("last_sync"):
+            return
+        conn = db._conn(DB_PATH)
+        try:
+            row = conn.execute(
+                "SELECT MAX(synced_at) AS t, COUNT(*) AS c FROM shortage_items"
+            ).fetchone()
+            if row and row["t"]:
+                conn.execute(
+                    "INSERT INTO meta(key, value) VALUES('last_sync', ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (row["t"],),
+                )
+                conn.execute(
+                    "INSERT INTO meta(key, value) VALUES('last_count', ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (str(row["c"]),),
+                )
+                conn.commit()
+                print("[meta] 已修复缺失的 last_sync:", row["t"])
+        finally:
+            conn.close()
+    except Exception as e:
+        print("[meta] 修复失败:", e)
+
+
 def _file_hash(path):
     if not os.path.exists(path):
         return None
@@ -338,6 +368,7 @@ def main():
 
     db.init_db(DB_PATH)
     _seed_if_empty()
+    _ensure_meta()
     _update_sync_state()
 
     # 启动后台自动同步（仅本地有 wecom-cli 时生效）

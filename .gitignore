@@ -7,6 +7,7 @@ data/app.pid
 data/api_test.db
 data/test_tmp.db
 *.db
+*.db-journal
 .env
 .backup/
 .workbuddy/

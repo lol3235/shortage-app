@@ -125,9 +125,10 @@ def row_to_item(r):
 
 
 def export_seed_sql(db_path=DEFAULT_DB, seed_path=None):
-    """把 shortage_items 全表导出为可重复执行的 INSERT SQL，供 GitHub/Render 初始化。
+    """把 shortage_items 与 meta 关键键导出为可重复执行的 INSERT SQL，供 GitHub/Render 初始化。
 
     按 id 排序，显式列名，一行一条，便于 diff 和版本控制。
+    同时携带 meta.last_sync / last_count，让云端部署后能正确显示同步时间。
     """
     if seed_path is None:
         seed_path = os.path.join(HERE, "data", "seed.sql")
@@ -137,9 +138,14 @@ def export_seed_sql(db_path=DEFAULT_DB, seed_path=None):
         rows = conn.execute(
             "SELECT %s FROM shortage_items ORDER BY id" % ", ".join(cols)
         ).fetchall()
+        meta_rows = conn.execute(
+            "SELECT key, value FROM meta WHERE key IN ('last_sync', 'last_count')"
+        ).fetchall()
+        meta = {r["key"]: r["value"] for r in meta_rows}
+        last_sync = meta.get("last_sync", "")
         lines = [
             "-- shortage-app seed.sql",
-            "-- generated: %s" % datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "-- last_sync: %s" % last_sync,
             "-- rows: %d" % len(rows),
             "DELETE FROM shortage_items;",
         ]
@@ -156,6 +162,18 @@ def export_seed_sql(db_path=DEFAULT_DB, seed_path=None):
             lines.append(
                 "INSERT INTO shortage_items (%s) VALUES (%s);"
                 % (", ".join(cols), ", ".join(vals))
+            )
+        # 同步 meta 关键键，确保云端从 seed.sql 初始化后也有 last_sync / last_count
+        lines.append("DELETE FROM meta WHERE key IN ('last_sync', 'last_count');")
+        if last_sync:
+            lines.append(
+                "INSERT INTO meta (key, value) VALUES ('last_sync', '%s');"
+                % last_sync.replace("'", "''")
+            )
+        if meta.get("last_count"):
+            lines.append(
+                "INSERT INTO meta (key, value) VALUES ('last_count', '%s');"
+                % meta["last_count"].replace("'", "''")
             )
         with open(seed_path, "w", encoding="utf-8", newline="\n") as f:
             f.write("\n".join(lines))
