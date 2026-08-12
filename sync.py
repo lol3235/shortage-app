@@ -167,6 +167,20 @@ def _resolve_columns(cells):
     return mapping
 
 
+def _fix_columns(cells, cur):
+    """修正表头错位：当表头无「项目」列、但出现两个「项目编码」列时，
+    第二个「项目编码」列实际存的是项目名（如某些巨茂批次分表把项目名
+    塞进了名为「项目编码」的第二列）。此时把 项目 指向第二个「项目编码」，
+    项目编码 指向第一个，避免把物料错挂到「领用车间/申请部门」名下。
+    """
+    if cur.get("项目", -1) >= 0 and cells[cur["项目"]] == "项目":
+        return  # 已有正确的「项目」列，无需修正
+    pc = [i for i, c in enumerate(cells) if c == "项目编码"]
+    if len(pc) >= 2:
+        cur["项目"] = pc[1]      # 第二列「项目编码」实为项目名
+        cur["项目编码"] = pc[0]  # 第一列才是真正的项目编码
+
+
 def parse_markdown(md):
     """多子表自适应解析：遇到含 物料编码+欠料数量 的表头行就重置列映射。"""
     lines = md.split("\n")
@@ -189,6 +203,7 @@ def parse_markdown(md):
         has_qty = any(alias in joined for alias in COL_ALIASES["欠料数量"])
         if has_mc and has_qty and len(cells) >= 5:
             cur = _resolve_columns(cells)
+            _fix_columns(cells, cur)
             continue
         mc_i = cur.get("物料编码", -1)
         if mc_i < 0 or mc_i >= len(cells):
