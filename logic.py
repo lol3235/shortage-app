@@ -316,9 +316,10 @@ def resolve_text(items, project_kw, text):
         return {"error": "无法从「%s」中识别出物料编码、品牌或物料名称" % text}
     return {
         "action": action,
-        "matched": [{"项目": i.get("项目"), "项目编码": i.get("项目编码"),
+        "matched": [{"id": i.get("id"), "项目": i.get("项目"), "项目编码": i.get("项目编码"),
                      "物料编码": i.get("物料编码"), "物料名称": i.get("物料名称"),
-                     "品牌": i.get("品牌")} for i in matched],
+                     "品牌": i.get("品牌"), "sheet": i.get("sheet"),
+                     "欠料数量": i.get("欠料数量")} for i in matched],
     }
 
 

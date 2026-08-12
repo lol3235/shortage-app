@@ -19,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import db
 import logic
 import sync
+import writeback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(HERE, "static")
@@ -164,41 +165,96 @@ def api_overrides():
     return {"overrides": db.list_manual_overrides(DB_PATH)}
 
 
-def api_resolve(body):
+def _resolve_matches(body):
+    """返回匹配到的活跃 DB 条目（完整 dict），用于本地覆盖 + 在线写回。
+
+    返回 (items, error)：items 为列表，error 为错误信息（无错则为 None）。
+    """
     project_kw = (body.get("project") or "").strip()
     material_code = (body.get("material_code") or "").strip()
-    # 用关键词定位到实际项目全名，避免前端只传了简称导致覆盖匹配不上
-    project_name = project_kw
+    text = (body.get("text") or "").strip()
+    active = _load_active()
+    if text:
+        res = logic.resolve_text(active, project_kw, text)
+        if "error" in res:
+            return None, res["error"]
+        # resolve_text 的 matched 已含 项目/物料编码/欠料数量/品牌/sheet
+        return res["matched"], None
     if project_kw and material_code:
         pk = project_kw.lower()
-        for i in _load_active():
-            if ((i.get("项目") or "").lower() == pk or
-                pk in (i.get("项目") or "").lower()):
-                if (i.get("物料编码") or "").strip() == material_code:
-                    project_name = i.get("项目") or project_kw
-                    break
-    applied = db.add_manual_override(
-        project_name, material_code,
-        body.get("brand", ""), body.get("note", "人工确认到货"),
-        body.get("action", "resolved"), path=DB_PATH)
-    return {"ok": True, "applied": applied}
+        matched = [i for i in active
+                   if ((i.get("项目") or "").lower() == pk
+                       or pk in (i.get("项目") or "").lower()
+                       or (i.get("项目编码") or "").lower() == pk)
+                   and (i.get("物料编码") or "").strip() == material_code]
+        if not matched:
+            return None, "未找到项目「%s」的物料 %s" % (project_kw, material_code)
+        return matched, None
+    return None, "缺少项目或物料编码"
+
+
+def api_resolve(body):
+    items, err = _resolve_matches(body)
+    if err:
+        return {"ok": False, "error": err}
+    new_status = "已到货"
+    preview = bool(body.get("preview"))
+    write_online = bool(body.get("write_online"))
+    if preview:
+        # 仅计算在线表写回计划，不改任何数据，交由前端预览确认
+        info = writeback.plan_online_write(items, new_status)
+        return {"ok": True, "preview": True, "matched": len(items),
+                "plan": info["plan"], "warnings": info["warnings"]}
+    # 1) 本地覆盖（隐藏该行）
+    overrides = []
+    for it in items:
+        overrides.append({
+            "project": it.get("项目") or body.get("project"),
+            "material_code": it.get("物料编码"),
+            "brand": it.get("品牌"),
+            "action": body.get("action", "resolved"),
+            "note": body.get("note") or body.get("text") or "人工确认到货",
+        })
+    applied = db.add_manual_overrides_batch(overrides, path=DB_PATH)
+    # 2) 在线写回（best-effort，失败不阻断本地）
+    online = []
+    warnings = []
+    if write_online:
+        info = writeback.plan_online_write(items, new_status)
+        online = writeback.apply_online_write(info["plan"])
+        warnings = info["warnings"]
+    return {"ok": True, "applied": applied, "online": online, "warnings": warnings}
 
 
 def api_resolve_text(body):
-    result = logic.resolve_text(_load_active(), body.get("project"), body.get("text"))
-    if "error" in result:
-        return {"ok": False, "error": result["error"]}
+    items, err = _resolve_matches(body)
+    if err:
+        return {"ok": False, "error": err}
+    new_status = "已到货"
+    preview = bool(body.get("preview"))
+    write_online = bool(body.get("write_online"))
+    if preview:
+        info = writeback.plan_online_write(items, new_status)
+        return {"ok": True, "preview": True, "matched": len(items),
+                "plan": info["plan"], "warnings": info["warnings"]}
     overrides = []
-    for m in result["matched"]:
+    for m in items:
         overrides.append({
-            "project": m["项目"] or body.get("project"),
-            "material_code": m["物料编码"],
-            "brand": m["品牌"],
-            "action": result["action"],
+            "project": m.get("项目") or body.get("project"),
+            "material_code": m.get("物料编码"),
+            "brand": m.get("品牌"),
+            "action": body.get("action", "resolved"),
             "note": body.get("text"),
         })
     applied = db.add_manual_overrides_batch(overrides, path=DB_PATH)
-    return {"ok": True, "applied": applied, "matched": len(overrides)}
+    online = []
+    warnings = []
+    if write_online:
+        info = writeback.plan_online_write(items, new_status)
+        online = writeback.apply_online_write(info["plan"])
+        warnings = info["warnings"]
+    return {"ok": True, "applied": applied, "matched": len(items),
+            "online": online, "warnings": warnings}
 
 
 ROUTES = {
