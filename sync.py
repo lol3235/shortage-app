@@ -66,6 +66,11 @@ COL_ALIASES = {
     "状态": ["状态", "处理状态", "进度", "是否解决", "备注"],
 }
 
+# 在线表中常被纵向合并单元格的列；解析时空值按项目/单据做前向填充
+FILL_FORWARD_FIELDS = {"项目编码", "项目", "单据日期", "申请部门", "单据编号", "期望交期", "预计到货时间"}
+# 日期/交期类列更敏感，仅在同一个单据编号内前向填充，避免跨单据污染
+DATE_LIKE_FIELDS = {"期望交期", "预计到货时间"}
+
 
 def _run_wecom(args, timeout=60):
     """用 cmd /c 调用 wecom-cli.cmd，隐藏窗口，避免黑窗。"""
@@ -182,16 +187,55 @@ def _fix_columns(cells, cur):
 
 
 def parse_markdown(md):
-    """多子表自适应解析：遇到含 物料编码+欠料数量 的表头行就重置列映射。"""
+    """多子表自适应解析：遇到含 物料编码+欠料数量 的表头行就重置列映射。
+
+    额外处理纵向合并单元格：wecom-cli 导出 markdown 时，合并单元格只在首行保留值，
+    后续行该列会变成空字符串。解析时对 项目编码/项目/单据编号/申请部门/单据日期/
+    期望交期/预计到货时间 做前向填充，但日期类字段仅在同一个 单据编号 内填充，
+    避免跨单据污染。
+    """
     lines = md.split("\n")
     sep = re.compile(r"^\|[\s:|-]+\|")
     cur = {}
     items = []
     current_sheet = ""
+    last_values = {}        # 当前项目分组内最近非空值
+    last_doc_no = ""        # 当前单据编号（用于日期类字段分组）
+
+    def _raw(f, cells):
+        i = cur.get(f, -1)
+        return cells[i].strip() if 0 <= i < len(cells) else ""
+
+    def _maybe_reset(raw_code, raw_project, raw_doc_no):
+        """项目切换时重置前向缓存；单据切换时仅重置日期类缓存。"""
+        nonlocal last_doc_no
+        code_changed = bool(raw_code and raw_code != last_values.get("项目编码"))
+        project_changed = bool(raw_project and raw_project != last_values.get("项目"))
+        if code_changed or project_changed:
+            last_values.clear()
+            last_doc_no = ""
+        if raw_doc_no and raw_doc_no != last_doc_no:
+            for f in DATE_LIKE_FIELDS:
+                last_values.pop(f, None)
+            last_doc_no = raw_doc_no
+
+    def _g(f, cells):
+        """取单元格值；空值且在填充列表中时，使用 last_values 前向填充。"""
+        v = _raw(f, cells)
+        if v:
+            last_values[f] = v
+            return v
+        if f in FILL_FORWARD_FIELDS and f in last_values:
+            return last_values[f]
+        return ""
+
     for l in lines:
         s = l.strip()
         if s and not s.startswith("|") and not s.startswith("---") and len(s) <= 40:
             current_sheet = s
+            # 切换 sheet 时清空缓存（理论上 sheet 内会重置表头，保险起见）
+            last_values.clear()
+            last_doc_no = ""
             continue
         if not s.startswith("|"):
             continue
@@ -204,6 +248,8 @@ def parse_markdown(md):
         if has_mc and has_qty and len(cells) >= 5:
             cur = _resolve_columns(cells)
             _fix_columns(cells, cur)
+            last_values.clear()
+            last_doc_no = ""
             continue
         mc_i = cur.get("物料编码", -1)
         if mc_i < 0 or mc_i >= len(cells):
@@ -216,26 +262,27 @@ def parse_markdown(md):
         if not re.match(r'^-?\d+(\.\d+)?$', sq):
             continue
 
-        def g(f):
-            i = cur.get(f, -1)
-            return cells[i].strip() if 0 <= i < len(cells) else ""
+        raw_code = _raw("项目编码", cells)
+        raw_project = _raw("项目", cells)
+        raw_doc_no = _raw("单据编号", cells)
+        _maybe_reset(raw_code, raw_project, raw_doc_no)
 
-        project = g("项目") or g("项目编码") or ""
-        project_code = g("项目编码")
-        eta = g("预计到货时间")
+        project = _g("项目", cells) or _g("项目编码", cells) or ""
+        project_code = _g("项目编码", cells)
+        eta = _g("预计到货时间", cells)
         items.append({
             "项目": project,
             "项目编码": project_code,
             "物料编码": mc,
-            "规格说明": g("规格说明"),
-            "审核日期": g("审核日期"),
-            "物料名称": g("物料名称"),
-            "品牌": g("品牌"),
-            "产地": g("产地"),
+            "规格说明": _g("规格说明", cells),
+            "审核日期": _g("审核日期", cells),
+            "物料名称": _g("物料名称", cells),
+            "品牌": _g("品牌", cells),
+            "产地": _g("产地", cells),
             "欠料数量": int(float(sq)),
             "预计到货时间": eta,
-            "期望交期": g("期望交期"),
-            "状态": g("状态"),
+            "期望交期": _g("期望交期", cells),
+            "状态": _g("状态", cells),
             "eta_status": _classify_eta(eta),
             "sheet": current_sheet,
             "owner": "",
