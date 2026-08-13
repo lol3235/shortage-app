@@ -22,8 +22,8 @@
 |---|---|---|
 | `5db3b66` | refactor | 废弃方案 B（网页端写回企业微信在线表）：`app.py` 移除 `import writeback` 及 `preview`/`write_online` 分支，`/api/resolve`、`/api/resolve_text` 仅做本地覆盖；前端确认弹窗改为「确认到货（本地标记）」，明确提示原始在线表需手动修改；`writeback.py` 标注废弃保留 |
 | `5db3b66` | docs | PRD §10 改为「已废弃」并说明根因（10 人以上企业模式机器人仅能编辑自己创建的文档，欠料表为成员创建，写入恒报 851003）；同步 CHANGELOG |
-| （待提交） | refactor | 彻底删除「确认到货」「快速到货登记」入口及后端 `/api/resolve`、`/api/resolve_text`、`/api/overrides`；移除 `manual_overrides` 表、`manual_status` 列、`writeback.py`、`logic.resolve_text`、sync.py 写回封装；项目汇总表格去掉「操作」列 |
-| （待提交） | docs | PRD §3.3 / §4 / §10 更新为「已删除」；CHANGELOG 更新 |
+| 0399d9c | refactor | 彻底删除「确认到货」「快速到货登记」入口及后端 `/api/resolve`、`/api/resolve_text`、`/api/overrides`；移除 `manual_overrides` 表、`manual_status` 列、`writeback.py`、`logic.resolve_text`、sync.py 写回封装；项目汇总表格去掉「操作」列 |
+| 0399d9c | docs | PRD §3.3 / §4 / §10 更新为「已删除」；CHANGELOG 更新 |
 
 **本期核心变化**：因企业微信平台限制，网页端无法改写成员创建的原始在线表；在无法写回原始表的情况下，单独的本地标记/隐藏功能对用户无意义。经用户确认，彻底删除人工到货/解决层与在线表写回能力，恢复为纯只读看板；如需隐藏某行，请直接修改企业微信在线表的状态列，下次同步后自动过滤。
 
