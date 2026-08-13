@@ -101,42 +101,23 @@ function refreshProject() {
   if (currentProjectKw) $('btn-project').click();
 }
 
-// 在线表写回确认弹窗
+// 确认到货（仅本地标记）弹窗
 let _resolvePayload = null;
 let _resolveOnDone = null;
 
-function showResolveModal(payload, planResp, onDone) {
+function showResolveModal(payload, message, onDone) {
   _resolvePayload = payload;
   _resolveOnDone = onDone;
-  const plan = planResp.plan || [];
-  const warns = planResp.warnings || [];
-  let body = '';
-  if (plan.length === 0) {
-    body = '<p class="muted">未匹配到可写回的在线表单元格（可能该子表无状态列，或行未定位）。将仅更新本地看板。</p>';
-  } else {
-    const head = '<tr><th>子表</th><th>项目</th><th>物料编码</th><th>数量</th><th>旧状态 → 新状态</th></tr>';
-    const rows = plan.map(p => `<tr>
-      <td>${esc(p.sheet_title)}</td>
-      <td>${esc(p.project)}</td>
-      <td>${esc(p.material_code)}</td>
-      <td>${esc(p.qty)}</td>
-      <td>${esc(p.old_status) || '（空）'} → <b>${esc(p.new_status)}</b></td>
-    </tr>`).join('');
-    body = `<table style="margin-top:6px"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
-  }
-  $('resolve-modal-body').innerHTML = body;
-  $('resolve-modal-warn').innerHTML = warns.length
-    ? ('<p class="warn-title">提示：</p>' + warns.map(w => `<div class="warn-item">• ${esc(w)}</div>`).join(''))
-    : '';
+  $('resolve-modal-body').innerHTML = message || '';
+  $('resolve-modal-warn').innerHTML = '';
   $('resolve-modal').classList.remove('hidden');
 }
 
 function resolveOne(project, mc, brand, name) {
-  const payload = { project, material_code: mc, brand, note: `确认到货：${name || mc}`, action: 'resolved', preview: true };
-  POST_JSON('/api/resolve', payload).then(r => {
-    if (!r.ok) { alert('登记失败：' + (r.error || '未知错误')); return; }
-    showResolveModal(payload, r, () => { refreshProject(); loadOverview(); });
-  });
+  const payload = { project, material_code: mc, brand, note: `确认到货：${name || mc}`, action: 'resolved' };
+  const msg = `<p>将把 <b>${esc(project)}</b> 项目的物料 <b>${esc(mc)}</b>（${esc(name || '')}）在本地看板标记为「已到货」并隐藏。</p>`
+    + `<p class="muted">提示：原始企业微信在线表不会自动更新，请记得手动修改该行的状态列。</p>`;
+  showResolveModal(payload, msg, () => { refreshProject(); loadOverview(); });
 }
 
 function renderProjectTable(rows) {
@@ -174,18 +155,14 @@ $('btn-resolve-text').addEventListener('click', () => {
   const kw = $('project-kw').value.trim();
   if (!text) { $('resolve-msg').innerHTML = '<span class="error">请输入登记内容</span>'; return; }
   if (!kw) { $('resolve-msg').innerHTML = '<span class="error">请先在「项目汇总」里查询一个项目</span>'; return; }
-  $('resolve-msg').innerHTML = '<span class="muted">登记中…</span>';
-  POST_JSON('/api/resolve_text', { project: kw, text, preview: true }).then(r => {
-    if (!r.ok) {
-      $('resolve-msg').innerHTML = `<span class="error">登记失败：${esc(r.error || '未知错误')}</span>`;
-      return;
-    }
-    showResolveModal({ project: kw, text }, r, () => {
-      $('resolve-text').value = '';
-      $('resolve-msg').innerHTML = `<span class="tag ok">已登记并更新</span>`;
-      refreshProject();
-      loadOverview();
-    });
+  const payload = { project: kw, text, action: 'resolved' };
+  const msg = `<p>将针对项目 <b>${esc(kw)}</b> 登记：<b>${esc(text)}</b></p>`
+    + `<p class="muted">该登记仅在本地看板生效，原始在线表请手动修改。</p>`;
+  showResolveModal(payload, msg, () => {
+    $('resolve-text').value = '';
+    $('resolve-msg').innerHTML = `<span class="tag ok">已登记并更新</span>`;
+    refreshProject();
+    loadOverview();
   });
 });
 
@@ -193,28 +170,11 @@ $('btn-resolve-text').addEventListener('click', () => {
 $('resolve-cancel').addEventListener('click', () => $('resolve-modal').classList.add('hidden'));
 $('resolve-confirm').addEventListener('click', () => {
   $('resolve-modal').classList.add('hidden');
-  const isText = _resolvePayload && _resolvePayload.text !== undefined;
+  if (!_resolvePayload) return;
+  const isText = _resolvePayload.text !== undefined;
   const endpoint = isText ? '/api/resolve_text' : '/api/resolve';
-  const payload = Object.assign({}, _resolvePayload, { preview: false, write_online: true });
-  POST_JSON(endpoint, payload).then(r => {
-    if (!r.ok) { alert('写回失败：' + (r.error || '未知错误')); return; }
-    if (r.online && r.online.length) {
-      const ok = r.online.filter(o => o.ok).length;
-      const fail = r.online.filter(o => !o.ok);
-      if (fail) {
-        const noAuth = fail.some(o => o.error_type === 'no_authority');
-        console.error('在线表写回失败条目：', fail);
-        if (noAuth) {
-          alert('在线表写回失败：智能机器人缺少该在线表的【编辑】权限（errcode 851003）。\n\n'
-            + '请在企业微信中打开该在线表 → 右上角「…」→ 添加协作成员/权限，'
-            + '将对应的智能机器人或你的账号设为「可编辑」，然后重试。\n\n'
-            + '（本地看板已更新；在线表待授权后才会同步。）');
-        } else {
-          alert(`在线表写回：${ok} 处成功，${fail.length} 处失败（详见控制台）`);
-        }
-      }
-    }
-    if (r.warnings && r.warnings.length) console.warn('写回提示：', r.warnings);
+  POST_JSON(endpoint, _resolvePayload).then(r => {
+    if (!r.ok) { alert('登记失败：' + (r.error || '未知错误')); return; }
     if (_resolveOnDone) _resolveOnDone();
   });
 });

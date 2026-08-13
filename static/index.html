@@ -129,16 +129,16 @@
       </section>
     </div>
   </div>
-  <!-- 在线表写回确认弹窗 -->
+  <!-- 确认到货（仅本地标记）弹窗 -->
   <div id="resolve-modal" class="modal hidden">
     <div class="modal-box">
-      <h3>确认写回在线表</h3>
-      <p class="muted">以下在线表单元格将被更新为「已到货」，请确认无误后写回（此操作不可逆）：</p>
+      <h3>确认到货（本地标记）</h3>
+      <p class="muted">该条目将在本地看板标记为「已到货」并隐藏。原始企业微信在线表需你手动修改状态列。</p>
       <div id="resolve-modal-body"></div>
       <div id="resolve-modal-warn" class="warn-box"></div>
       <div class="modal-actions">
         <button id="resolve-cancel">取消</button>
-        <button id="resolve-confirm" class="primary">确认写回并更新看板</button>
+        <button id="resolve-confirm" class="primary">确认并更新看板</button>
       </div>
     </div>
   </div>

@@ -19,7 +19,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import db
 import logic
 import sync
-import writeback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(HERE, "static")
@@ -194,18 +193,13 @@ def _resolve_matches(body):
 
 
 def api_resolve(body):
+    # 说明：原「写回企业微信在线表」功能已废弃（企业微信 10 人以上企业模式下，
+    # API 机器人仅能编辑自己创建的文档，无法修改成员手工创建的欠料表，
+    # 写接口始终返回 851003）。现「确认到货」仅做本地覆盖（隐藏该行），
+    # 原始在线表由用户手动修改。
     items, err = _resolve_matches(body)
     if err:
         return {"ok": False, "error": err}
-    new_status = "已到货"
-    preview = bool(body.get("preview"))
-    write_online = bool(body.get("write_online"))
-    if preview:
-        # 仅计算在线表写回计划，不改任何数据，交由前端预览确认
-        info = writeback.plan_online_write(items, new_status)
-        return {"ok": True, "preview": True, "matched": len(items),
-                "plan": info["plan"], "warnings": info["warnings"]}
-    # 1) 本地覆盖（隐藏该行）
     overrides = []
     for it in items:
         overrides.append({
@@ -216,27 +210,14 @@ def api_resolve(body):
             "note": body.get("note") or body.get("text") or "人工确认到货",
         })
     applied = db.add_manual_overrides_batch(overrides, path=DB_PATH)
-    # 2) 在线写回（best-effort，失败不阻断本地）
-    online = []
-    warnings = []
-    if write_online:
-        info = writeback.plan_online_write(items, new_status)
-        online = writeback.apply_online_write(info["plan"])
-        warnings = info["warnings"]
-    return {"ok": True, "applied": applied, "online": online, "warnings": warnings}
+    return {"ok": True, "applied": applied}
 
 
 def api_resolve_text(body):
+    # 说明：同 api_resolve，仅做本地覆盖，不做在线表写回。
     items, err = _resolve_matches(body)
     if err:
         return {"ok": False, "error": err}
-    new_status = "已到货"
-    preview = bool(body.get("preview"))
-    write_online = bool(body.get("write_online"))
-    if preview:
-        info = writeback.plan_online_write(items, new_status)
-        return {"ok": True, "preview": True, "matched": len(items),
-                "plan": info["plan"], "warnings": info["warnings"]}
     overrides = []
     for m in items:
         overrides.append({
@@ -247,14 +228,7 @@ def api_resolve_text(body):
             "note": body.get("text"),
         })
     applied = db.add_manual_overrides_batch(overrides, path=DB_PATH)
-    online = []
-    warnings = []
-    if write_online:
-        info = writeback.plan_online_write(items, new_status)
-        online = writeback.apply_online_write(info["plan"])
-        warnings = info["warnings"]
-    return {"ok": True, "applied": applied, "matched": len(items),
-            "online": online, "warnings": warnings}
+    return {"ok": True, "applied": applied, "matched": len(items)}
 
 
 ROUTES = {
