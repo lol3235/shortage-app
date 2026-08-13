@@ -160,77 +160,6 @@ def api_settings():
     }
 
 
-def api_overrides():
-    return {"overrides": db.list_manual_overrides(DB_PATH)}
-
-
-def _resolve_matches(body):
-    """返回匹配到的活跃 DB 条目（完整 dict），用于本地覆盖 + 在线写回。
-
-    返回 (items, error)：items 为列表，error 为错误信息（无错则为 None）。
-    """
-    project_kw = (body.get("project") or "").strip()
-    material_code = (body.get("material_code") or "").strip()
-    text = (body.get("text") or "").strip()
-    active = _load_active()
-    if text:
-        res = logic.resolve_text(active, project_kw, text)
-        if "error" in res:
-            return None, res["error"]
-        # resolve_text 的 matched 已含 项目/物料编码/欠料数量/品牌/sheet
-        return res["matched"], None
-    if project_kw and material_code:
-        pk = project_kw.lower()
-        matched = [i for i in active
-                   if ((i.get("项目") or "").lower() == pk
-                       or pk in (i.get("项目") or "").lower()
-                       or (i.get("项目编码") or "").lower() == pk)
-                   and (i.get("物料编码") or "").strip() == material_code]
-        if not matched:
-            return None, "未找到项目「%s」的物料 %s" % (project_kw, material_code)
-        return matched, None
-    return None, "缺少项目或物料编码"
-
-
-def api_resolve(body):
-    # 说明：原「写回企业微信在线表」功能已废弃（企业微信 10 人以上企业模式下，
-    # API 机器人仅能编辑自己创建的文档，无法修改成员手工创建的欠料表，
-    # 写接口始终返回 851003）。现「确认到货」仅做本地覆盖（隐藏该行），
-    # 原始在线表由用户手动修改。
-    items, err = _resolve_matches(body)
-    if err:
-        return {"ok": False, "error": err}
-    overrides = []
-    for it in items:
-        overrides.append({
-            "project": it.get("项目") or body.get("project"),
-            "material_code": it.get("物料编码"),
-            "brand": it.get("品牌"),
-            "action": body.get("action", "resolved"),
-            "note": body.get("note") or body.get("text") or "人工确认到货",
-        })
-    applied = db.add_manual_overrides_batch(overrides, path=DB_PATH)
-    return {"ok": True, "applied": applied}
-
-
-def api_resolve_text(body):
-    # 说明：同 api_resolve，仅做本地覆盖，不做在线表写回。
-    items, err = _resolve_matches(body)
-    if err:
-        return {"ok": False, "error": err}
-    overrides = []
-    for m in items:
-        overrides.append({
-            "project": m.get("项目") or body.get("project"),
-            "material_code": m.get("物料编码"),
-            "brand": m.get("品牌"),
-            "action": body.get("action", "resolved"),
-            "note": body.get("text"),
-        })
-    applied = db.add_manual_overrides_batch(overrides, path=DB_PATH)
-    return {"ok": True, "applied": applied, "matched": len(items)}
-
-
 ROUTES = {
     "/api/overview": api_overview,
     "/api/search": api_search,
@@ -240,7 +169,6 @@ ROUTES = {
     "/api/eta": api_eta,
     "/api/sync_status": api_sync_status,
     "/api/settings": api_settings,
-    "/api/overrides": api_overrides,
 }
 
 
@@ -318,20 +246,6 @@ class Handler(BaseHTTPRequestHandler):
             # 后台线程执行
             threading.Thread(target=do_sync, daemon=True).start()
             self._send_json({"accepted": True, "message": "已开始同步"})
-            return
-        if parsed.path == "/api/resolve":
-            try:
-                body = json.loads(self._read_body())
-                self._send_json(api_resolve(body))
-            except Exception as e:
-                self._send_json({"ok": False, "error": str(e)}, 500)
-            return
-        if parsed.path == "/api/resolve_text":
-            try:
-                body = json.loads(self._read_body())
-                self._send_json(api_resolve_text(body))
-            except Exception as e:
-                self._send_json({"ok": False, "error": str(e)}, 500)
             return
         self._send_json({"error": "unknown post"}, 404)
 

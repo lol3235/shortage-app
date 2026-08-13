@@ -101,28 +101,9 @@ function refreshProject() {
   if (currentProjectKw) $('btn-project').click();
 }
 
-// 确认到货（仅本地标记）弹窗
-let _resolvePayload = null;
-let _resolveOnDone = null;
-
-function showResolveModal(payload, message, onDone) {
-  _resolvePayload = payload;
-  _resolveOnDone = onDone;
-  $('resolve-modal-body').innerHTML = message || '';
-  $('resolve-modal-warn').innerHTML = '';
-  $('resolve-modal').classList.remove('hidden');
-}
-
-function resolveOne(project, mc, brand, name) {
-  const payload = { project, material_code: mc, brand, note: `确认到货：${name || mc}`, action: 'resolved' };
-  const msg = `<p>将把 <b>${esc(project)}</b> 项目的物料 <b>${esc(mc)}</b>（${esc(name || '')}）在本地看板标记为「已到货」并隐藏。</p>`
-    + `<p class="muted">提示：原始企业微信在线表不会自动更新，请记得手动修改该行的状态列。</p>`;
-  showResolveModal(payload, msg, () => { refreshProject(); loadOverview(); });
-}
-
 function renderProjectTable(rows) {
   if (!rows || !rows.length) return '<p class="muted">无数据</p>';
-  const head = '<tr><th>物料编码</th><th>名称</th><th>品牌</th><th>合计数量</th><th>紧急度</th><th>操作</th></tr>';
+  const head = '<tr><th>物料编码</th><th>名称</th><th>品牌</th><th>合计数量</th><th>紧急度</th></tr>';
   const body = rows.map(m => {
     const status = Object.entries(m.status || {}).map(([k,v])=>`${k}:${v}`).join('/') || '—';
     return `<tr>
@@ -131,7 +112,6 @@ function renderProjectTable(rows) {
       <td>${esc(m.brand)}</td>
       <td>${esc(m.qty)}</td>
       <td>${esc(status)}</td>
-      <td><button class="btn-resolve" onclick="resolveOne('${esc(currentProjectKw).replace(/'/g,'\\\'')}', '${esc(m.mc).replace(/'/g,'\\\'')}', '${esc(m.brand).replace(/'/g,'\\\'')}', '${esc(m.name).replace(/'/g,'\\\'')}')">确认到货</button></td>
     </tr>`;
   }).join('');
   return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
@@ -147,35 +127,6 @@ $('btn-project').addEventListener('click', () => {
     h += '<h3 style="margin:12px 0 6px">按物料编码汇总</h3>';
     h += renderProjectTable(d.by_material || []);
     $('project-result').innerHTML = h;
-  });
-});
-
-$('btn-resolve-text').addEventListener('click', () => {
-  const text = $('resolve-text').value.trim();
-  const kw = $('project-kw').value.trim();
-  if (!text) { $('resolve-msg').innerHTML = '<span class="error">请输入登记内容</span>'; return; }
-  if (!kw) { $('resolve-msg').innerHTML = '<span class="error">请先在「项目汇总」里查询一个项目</span>'; return; }
-  const payload = { project: kw, text, action: 'resolved' };
-  const msg = `<p>将针对项目 <b>${esc(kw)}</b> 登记：<b>${esc(text)}</b></p>`
-    + `<p class="muted">该登记仅在本地看板生效，原始在线表请手动修改。</p>`;
-  showResolveModal(payload, msg, () => {
-    $('resolve-text').value = '';
-    $('resolve-msg').innerHTML = `<span class="tag ok">已登记并更新</span>`;
-    refreshProject();
-    loadOverview();
-  });
-});
-
-// 弹窗按钮
-$('resolve-cancel').addEventListener('click', () => $('resolve-modal').classList.add('hidden'));
-$('resolve-confirm').addEventListener('click', () => {
-  $('resolve-modal').classList.add('hidden');
-  if (!_resolvePayload) return;
-  const isText = _resolvePayload.text !== undefined;
-  const endpoint = isText ? '/api/resolve_text' : '/api/resolve';
-  POST_JSON(endpoint, _resolvePayload).then(r => {
-    if (!r.ok) { alert('登记失败：' + (r.error || '未知错误')); return; }
-    if (_resolveOnDone) _resolveOnDone();
   });
 });
 

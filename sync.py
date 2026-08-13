@@ -336,47 +336,6 @@ def _fetch_via_api(timeout=30):
     return dj.get("content", "") or dj.get("markdown", "")
 
 
-# ---------------- 在线表写回（方案 B：回写企微在线表） ----------------
-def _doc_command(cmd, payload):
-    """运行 wecom-cli 的 doc 子命令，返回解析后的内层 result（dict）。
-
-    失败时抛 RuntimeError，调用方据此降级（如仅本地更新，不阻断主流程）。
-    """
-    r = _run_wecom(["doc", cmd, "--json", json.dumps(payload, ensure_ascii=False)])
-    if r.returncode != 0 or not (r.stdout or "").strip():
-        raise RuntimeError("wecom-cli doc %s 失败: rc=%s err=%s"
-                           % (cmd, r.returncode, (r.stderr or "")[:200]))
-    try:
-        outer = json.loads(r.stdout)
-    except Exception:
-        raise RuntimeError("wecom-cli doc %s 返回非 JSON: %s" % (cmd, (r.stdout or "")[:200]))
-    if outer.get("isError"):
-        raise RuntimeError("wecom-cli doc %s 报错: %s" % (cmd, (r.stdout or "")[:300]))
-    content = (outer.get("result") or {}).get("content") or []
-    if not content:
-        raise RuntimeError("wecom-cli doc %s 无返回内容" % cmd)
-    inner = json.loads(content[0]["text"])
-    if inner.get("errcode", 0) != 0:
-        raise RuntimeError("企微 doc %s errcode=%s errmsg=%s"
-                           % (cmd, inner.get("errcode"), inner.get("errmsg")))
-    return inner
-
-
-def sheet_get_info(url=None):
-    """获取在线表各子表结构（sheet_id / 标题 / 行列数 / 数据范围）。"""
-    if url is None:
-        url = SHORTAGE_URL
-    return _doc_command("sheet_get_info", {"url": url})
-
-
-def sheet_update_range_data(sheet_id, grid_data, url=None):
-    """按网格坐标更新在线表某子表的单元格。grid_data 见 schema（start_row/start_column 0 基）。"""
-    if url is None:
-        url = SHORTAGE_URL
-    return _doc_command("sheet_update_range_data",
-                        {"url": url, "sheet_id": sheet_id, "grid_data": grid_data})
-
-
 def sync_to_db(offline_md=None, db_path=None):
     """拉取(或离线)并解析，写入 SQLite。返回 (条数, synced_at)。失败抛异常（保留旧数据）。
 
@@ -398,10 +357,6 @@ def sync_to_db(offline_md=None, db_path=None):
     from datetime import datetime
     synced_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     db.upsert_items(items, synced_at, path=db_path)
-    # 重新应用人工覆盖记录，确保已确认到货/已解决的行不会被同步刷回
-    applied = db.apply_manual_overrides(path=db_path)
-    if applied:
-        print("[sync] 已应用 %d 条人工覆盖记录" % applied)
     return len(items), synced_at
 
 

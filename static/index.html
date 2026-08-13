@@ -65,15 +65,6 @@
 
         <!-- 项目汇总 -->
         <div class="page hidden" id="page-project">
-          <div class="panel quick-register">
-            <h3>快速到货登记</h3>
-            <p class="muted">在当前项目内输入要本地标记的物料，例如：KITZ / A01-01-21-11-10（仅隐藏本地看板行，原始在线表请手动更新）</p>
-            <div class="toolbar" style="margin-bottom:0">
-              <input id="resolve-text" placeholder="输入物料编码或名称，如 KITZ" style="flex:2">
-              <button id="btn-resolve-text">登记</button>
-            </div>
-            <div id="resolve-msg" style="margin-top:8px;font-size:13px"></div>
-          </div>
           <div class="toolbar">
             <input id="project-kw" placeholder="项目名称或编码，如 巨茂 / 西安">
             <button id="btn-project">汇总</button>
@@ -129,20 +120,6 @@
       </section>
     </div>
   </div>
-  <!-- 确认到货（仅本地标记）弹窗 -->
-  <div id="resolve-modal" class="modal hidden">
-    <div class="modal-box">
-      <h3>确认到货（本地标记）</h3>
-      <p class="muted">该条目将在本地看板标记为「已到货」并隐藏。原始企业微信在线表需你手动修改状态列。</p>
-      <div id="resolve-modal-body"></div>
-      <div id="resolve-modal-warn" class="warn-box"></div>
-      <div class="modal-actions">
-        <button id="resolve-cancel">取消</button>
-        <button id="resolve-confirm" class="primary">确认并更新看板</button>
-      </div>
-    </div>
-  </div>
-
   <script src="/app.js"></script>
 </body>
 </html>
