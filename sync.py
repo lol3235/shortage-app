@@ -195,10 +195,12 @@ def parse_markdown(md):
     避免跨单据污染。
     """
     lines = md.split("\n")
-    sep = re.compile(r"^\|[\s:|-]+\|")
+    # 分隔行：整行仅由 |、-、:、空白组成，避免把纵向合并单元格后的空值行误判为分隔行
+    sep = re.compile(r"^\|(\s*[-:]+\s*\|)+$")
     cur = {}
     items = []
     current_sheet = ""
+    num_cols = 0            # 当前子表表头列数（用于修正合并单元格导致的列错位）
     last_values = {}        # 当前项目分组内最近非空值
     last_doc_no = ""        # 当前单据编号（用于日期类字段分组）
 
@@ -248,10 +250,20 @@ def parse_markdown(md):
         if has_mc and has_qty and len(cells) >= 5:
             cur = _resolve_columns(cells)
             _fix_columns(cells, cur)
+            num_cols = len(cells)
             last_values.clear()
             last_doc_no = ""
             continue
         mc_i = cur.get("物料编码", -1)
+        # 修正纵向合并单元格导致的列错位：后续行前面空列可能被省略，
+        # 根据物料编码列位置做左补空，使后续数据对齐表头。
+        if 0 <= mc_i < num_cols and len(cells) < num_cols:
+            for k, c in enumerate(cells):
+                if _is_material_code(c):
+                    pad = mc_i - k
+                    if pad > 0:
+                        cells = [""] * pad + cells
+                    break
         if mc_i < 0 or mc_i >= len(cells):
             continue
         mc = cells[mc_i]
