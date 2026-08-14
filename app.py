@@ -265,14 +265,19 @@ def _seed_if_empty():
     if not os.path.exists(seed):
         return
     import sqlite3
+    conn = sqlite3.connect(DB_PATH)
     try:
-        conn = sqlite3.connect(DB_PATH)
         conn.executescript(open(seed, encoding="utf-8").read())
         conn.commit()
-        conn.close()
         print("seed.sql 初始化完成（云端使用本地同步快照）")
     except Exception as e:
-        print("seed 初始化失败:", e)
+        conn.rollback()
+        err = "seed 初始化失败: %s" % e
+        print(err)
+        with _sync_lock:
+            sync_state["error"] = err
+    finally:
+        conn.close()
 
 
 def _ensure_meta():
