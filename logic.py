@@ -24,6 +24,13 @@ def filter_active(items):
     return [i for i in items if not is_resolved(i)]
 
 
+def _fmt_sheets(counter):
+    """把 sheet 出现次数格式化为 '表名:行数 / 表名:行数'。"""
+    if not counter:
+        return "—"
+    return " / ".join(f"{k}:{v}" for k, v in counter.most_common())
+
+
 def _parse_date(s):
     """尽力把交期文本解析成 (年,月,日)；无法识别返回 None。"""
     s = (s or "").strip()
@@ -52,9 +59,11 @@ def overview(items):
         return {"total": 0, "total_qty": 0, "urgent": 0, "sheets": 0,
                 "by_status": {}, "by_project": []}
     by_status = Counter(i.get("eta_status", "其他") for i in items)
-    by_project = defaultdict(int)
+    by_project = defaultdict(lambda: {"count": 0, "sheets": Counter()})
     for i in items:
-        by_project[i.get("项目") or i.get("项目编码") or "未命名"] += 1
+        proj = i.get("项目") or i.get("项目编码") or "未命名"
+        by_project[proj]["count"] += 1
+        by_project[proj]["sheets"][i.get("sheet") or "未知"] += 1
     urgent = sum(by_status.get(s, 0) for s in ("空白", "无交期", "付款瓶颈"))
     sheets = len(set(i.get("sheet") for i in items if i.get("sheet")))
     return {
@@ -64,7 +73,8 @@ def overview(items):
         "sheets": sheets,
         "by_status": dict(by_status),
         "by_project": sorted(
-            [{"project": p, "count": c} for p, c in by_project.items()],
+            [{"project": p, "count": info["count"], "sheets": _fmt_sheets(info["sheets"])}
+             for p, info in by_project.items()],
             key=lambda x: -x["count"])[:10],
     }
 
@@ -87,12 +97,13 @@ def project_summary(items, kw):
     rows = [i for i in items if k in str(i.get("项目") or i.get("项目编码") or "").lower()]
     if not rows:
         return {"error": "未找到项目「%s」的欠料" % kw}
-    by_material = defaultdict(lambda: {"qty": 0, "name": "", "status": Counter(), "brands": Counter()})
+    by_material = defaultdict(lambda: {"qty": 0, "name": "", "status": Counter(), "brands": Counter(), "sheets": Counter()})
     for i in rows:
         mc = i.get("物料编码") or "未知编码"
         by_material[mc]["qty"] += int(i.get("欠料数量") or 0)
         by_material[mc]["name"] = i.get("物料名称") or ""
         by_material[mc]["status"][i.get("eta_status", "其他")] += 1
+        by_material[mc]["sheets"][i.get("sheet") or "未知"] += 1
         b = (i.get("品牌") or "").strip()
         if b:
             by_material[mc]["brands"][b] += 1
@@ -113,7 +124,7 @@ def project_summary(items, kw):
         "by_status": dict(Counter(i.get("eta_status", "其他") for i in rows)),
         "by_material": sorted(
             [{"mc": mc, "name": info["name"], "qty": info["qty"], "brand": _pick_brand(info["brands"]),
-              "status": dict(info["status"])} for mc, info in by_material.items()],
+              "status": dict(info["status"]), "sheets": _fmt_sheets(info["sheets"])} for mc, info in by_material.items()],
             key=lambda x: -x["qty"])[:50],
     }
 
@@ -129,28 +140,34 @@ def material_summary(items, kw):
     )]
     if not rows:
         return {"error": "未找到物料「%s」的缺货记录" % kw}
-    by_material = defaultdict(lambda: {"qty": 0, "name": "", "projects": set(), "status": Counter()})
-    by_project = defaultdict(lambda: {"qty": 0, "status": Counter()})
+    by_material = defaultdict(lambda: {"qty": 0, "name": "", "projects": set(), "status": Counter(), "sheets": Counter()})
+    by_project = defaultdict(lambda: {"qty": 0, "status": Counter(), "sheets": Counter()})
     for i in rows:
         mc = i.get("物料编码") or "未知编码"
+        sheet = i.get("sheet") or "未知"
         by_material[mc]["qty"] += int(i.get("欠料数量") or 0)
         by_material[mc]["name"] = i.get("物料名称") or ""
         by_material[mc]["projects"].add(i.get("项目") or i.get("项目编码") or "未命名")
         by_material[mc]["status"][i.get("eta_status", "其他")] += 1
+        by_material[mc]["sheets"][sheet] += 1
         proj = i.get("项目") or i.get("项目编码") or "未命名"
         by_project[proj]["qty"] += int(i.get("欠料数量") or 0)
         by_project[proj]["status"][i.get("eta_status", "其他")] += 1
+        by_project[proj]["sheets"][sheet] += 1
+
     return {
         "keyword": kw,
         "rows": len(rows),
         "total_qty": sum(int(i.get("欠料数量") or 0) for i in rows),
         "by_material": sorted(
             [{"mc": mc, "name": info["name"], "qty": info["qty"],
-              "projects": len(info["projects"]), "status": dict(info["status"])}
+              "projects": len(info["projects"]), "status": dict(info["status"]),
+              "sheets": _fmt_sheets(info["sheets"])}
              for mc, info in by_material.items()],
             key=lambda x: -x["qty"])[:50],
         "by_project": sorted(
-            [{"project": p, "qty": info["qty"], "status": dict(info["status"])}
+            [{"project": p, "qty": info["qty"], "status": dict(info["status"]),
+              "sheets": _fmt_sheets(info["sheets"])}
              for p, info in by_project.items()],
             key=lambda x: -x["qty"])[:15],
         "details": rows[:30],
@@ -167,28 +184,33 @@ def brand_summary(items, kw):
     if not rows:
         return {"error": "未找到品牌「%s」的欠料记录" % kw}
     total_qty = sum(int(i.get("欠料数量") or 0) for i in rows)
-    by_material = defaultdict(lambda: {"qty": 0, "name": "", "projects": set(), "status": Counter()})
-    by_project = defaultdict(lambda: {"qty": 0, "status": Counter()})
+    by_material = defaultdict(lambda: {"qty": 0, "name": "", "projects": set(), "status": Counter(), "sheets": Counter()})
+    by_project = defaultdict(lambda: {"qty": 0, "status": Counter(), "sheets": Counter()})
     for i in rows:
         mc = i.get("物料编码") or "未知编码"
+        sheet = i.get("sheet") or "未知"
         by_material[mc]["qty"] += int(i.get("欠料数量") or 0)
         by_material[mc]["name"] = i.get("物料名称") or ""
         by_material[mc]["projects"].add(i.get("项目") or i.get("项目编码") or "未命名")
         by_material[mc]["status"][i.get("eta_status", "其他")] += 1
+        by_material[mc]["sheets"][sheet] += 1
         proj = i.get("项目") or i.get("项目编码") or "未命名"
         by_project[proj]["qty"] += int(i.get("欠料数量") or 0)
         by_project[proj]["status"][i.get("eta_status", "其他")] += 1
+        by_project[proj]["sheets"][sheet] += 1
     return {
         "keyword": kw,
         "rows": len(rows),
         "total_qty": total_qty,
         "by_material": sorted(
             [{"mc": mc, "name": info["name"], "qty": info["qty"],
-              "projects": len(info["projects"]), "status": dict(info["status"])}
+              "projects": len(info["projects"]), "status": dict(info["status"]),
+              "sheets": _fmt_sheets(info["sheets"])}
              for mc, info in by_material.items()],
             key=lambda x: -x["qty"])[:50],
         "by_project": sorted(
-            [{"project": p, "qty": info["qty"], "status": dict(info["status"])}
+            [{"project": p, "qty": info["qty"], "status": dict(info["status"]),
+              "sheets": _fmt_sheets(info["sheets"])}
              for p, info in by_project.items()],
             key=lambda x: -x["qty"])[:15],
         "details": rows[:30],

@@ -39,10 +39,11 @@ body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #f
 
 /* 条形 */
 .bar-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: 13px; }
-.bar-row .name { width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-row .name { width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar-track { flex: 1; background: #eef2f7; border-radius: 4px; height: 18px; position: relative; }
 .bar-fill { height: 100%; background: #2563eb; border-radius: 4px; }
-.bar-row .val { width: 60px; text-align: right; color: #374151; }
+.bar-row .val { width: 50px; text-align: right; color: #374151; }
+.bar-row .source { width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6b7280; font-size: 12px; text-align: right; }
 
 /* 项目 TOP10 可点击链接 */
 .project-link { color: #2563eb; text-decoration: none; cursor: pointer; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

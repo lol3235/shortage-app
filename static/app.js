@@ -67,7 +67,8 @@ function loadOverview() {
     $('by-project').innerHTML = (d.by_project || []).map(p =>
       `<div class="bar-row"><a class="name project-link" href="javascript:void(0)" data-project="${esc(p.project)}" onclick="openProject(this.dataset.project);return false;" title="${esc(p.project)}">${esc(p.project)}</a>
        <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, p.count / (d.by_project[0]?.count||1) * 100)}%"></div></div>
-       <div class="val">${p.count}</div></div>`).join('') || '<p class="muted">无数据</p>';
+       <div class="val">${p.count}</div>
+       <div class="source" title="${esc(p.sheets || '')}">${esc(p.sheets || '—')}</div></div>`).join('') || '<p class="muted">无数据</p>';
   }).catch(e => $('cards').innerHTML = `<p class="error">加载失败：${esc(e)}</p>`);
 }
 
@@ -83,7 +84,7 @@ const DETAIL_COLS = [
   { key: '项目', label: '项目' }, { key: '物料编码', label: '物料编码' },
   { key: '物料名称', label: '物料名称' }, { key: '品牌', label: '品牌' },
   { key: '欠料数量', label: '欠料数量' }, { key: 'eta_status', label: '紧急度' },
-  { key: '预计到货时间', label: '预计到货' },
+  { key: '预计到货时间', label: '预计到货' }, { key: 'sheet', label: '来源表' },
 ];
 
 // ---------- 查询 ----------
@@ -103,7 +104,7 @@ function refreshProject() {
 
 function renderProjectTable(rows) {
   if (!rows || !rows.length) return '<p class="muted">无数据</p>';
-  const head = '<tr><th>物料编码</th><th>名称</th><th>品牌</th><th>合计数量</th><th>紧急度</th></tr>';
+  const head = '<tr><th>物料编码</th><th>名称</th><th>品牌</th><th>合计数量</th><th>紧急度</th><th>来源表</th></tr>';
   const body = rows.map(m => {
     const status = Object.entries(m.status || {}).map(([k,v])=>`${k}:${v}`).join('/') || '—';
     return `<tr>
@@ -112,6 +113,7 @@ function renderProjectTable(rows) {
       <td>${esc(m.brand)}</td>
       <td>${esc(m.qty)}</td>
       <td>${esc(status)}</td>
+      <td>${esc(m.sheets || '—')}</td>
     </tr>`;
   }).join('');
   return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
@@ -137,11 +139,11 @@ $('btn-material').addEventListener('click', () => {
     if (d.error) { $('material-result').innerHTML = `<p class="error">${esc(d.error)}</p>`; return; }
     let h = `<p>命中 <b>${d.rows}</b> 条，合计欠货 <b>${d.total_qty}</b></p>`;
     h += '<h3 style="margin:12px 0 6px">按物料编码汇总（跨项目加总）</h3>';
-    h += rowsTable(d.by_material.map(m => ({ mc: m.mc, name: m.name, qty: m.qty, projects: m.projects, status: Object.entries(m.status).map(([k,v])=>`${k}:${v}`).join('/') })),
-      [{ key: 'mc', label: '物料编码' }, { key: 'name', label: '名称' }, { key: 'qty', label: '合计数量' }, { key: 'projects', label: '项目数' }, { key: 'status', label: '紧急度' }]);
+    h += rowsTable(d.by_material.map(m => ({ mc: m.mc, name: m.name, qty: m.qty, projects: m.projects, status: Object.entries(m.status).map(([k,v])=>`${k}:${v}`).join('/'), sheets: m.sheets })),
+      [{ key: 'mc', label: '物料编码' }, { key: 'name', label: '名称' }, { key: 'qty', label: '合计数量' }, { key: 'projects', label: '项目数' }, { key: 'status', label: '紧急度' }, { key: 'sheets', label: '来源表' }]);
     h += '<h3 style="margin:12px 0 6px">按项目分布</h3>';
-    h += rowsTable(d.by_project.map(p => ({ project: p.project, qty: p.qty, status: Object.entries(p.status).map(([k,v])=>`${k}:${v}`).join('/') })),
-      [{ key: 'project', label: '项目' }, { key: 'qty', label: '合计数量' }, { key: 'status', label: '紧急度' }]);
+    h += rowsTable(d.by_project.map(p => ({ project: p.project, qty: p.qty, status: Object.entries(p.status).map(([k,v])=>`${k}:${v}`).join('/'), sheets: p.sheets })),
+      [{ key: 'project', label: '项目' }, { key: 'qty', label: '合计数量' }, { key: 'status', label: '紧急度' }, { key: 'sheets', label: '来源表' }]);
     if (d.details && d.details.length) { h += '<h3 style="margin:12px 0 6px">明细 Top</h3>' + rowsTable(d.details, DETAIL_COLS); }
     $('material-result').innerHTML = h;
   });
@@ -154,11 +156,11 @@ $('btn-brand').addEventListener('click', () => {
     if (d.error) { $('brand-result').innerHTML = `<p class="error">${esc(d.error)}</p>`; return; }
     let h = `<p>该品牌命中 <b>${d.rows}</b> 条，合计欠货 <b>${d.total_qty}</b></p>`;
     h += '<h3 style="margin:12px 0 6px">按物料编码分布（跨项目加总）</h3>';
-    h += rowsTable(d.by_material.map(m => ({ mc: m.mc, name: m.name, qty: m.qty, projects: m.projects, status: Object.entries(m.status).map(([k,v])=>`${k}:${v}`).join('/') })),
-      [{ key: 'mc', label: '物料编码' }, { key: 'name', label: '名称' }, { key: 'qty', label: '合计数量' }, { key: 'projects', label: '项目数' }, { key: 'status', label: '紧急度' }]);
+    h += rowsTable(d.by_material.map(m => ({ mc: m.mc, name: m.name, qty: m.qty, projects: m.projects, status: Object.entries(m.status).map(([k,v])=>`${k}:${v}`).join('/'), sheets: m.sheets })),
+      [{ key: 'mc', label: '物料编码' }, { key: 'name', label: '名称' }, { key: 'qty', label: '合计数量' }, { key: 'projects', label: '项目数' }, { key: 'status', label: '紧急度' }, { key: 'sheets', label: '来源表' }]);
     h += '<h3 style="margin:12px 0 6px">按项目分布</h3>';
-    h += rowsTable(d.by_project.map(p => ({ project: p.project, qty: p.qty, status: Object.entries(p.status).map(([k,v])=>`${k}:${v}`).join('/') })),
-      [{ key: 'project', label: '项目' }, { key: 'qty', label: '合计数量' }, { key: 'status', label: '紧急度' }]);
+    h += rowsTable(d.by_project.map(p => ({ project: p.project, qty: p.qty, status: Object.entries(p.status).map(([k,v])=>`${k}:${v}`).join('/'), sheets: p.sheets })),
+      [{ key: 'project', label: '项目' }, { key: 'qty', label: '合计数量' }, { key: 'status', label: '紧急度' }, { key: 'sheets', label: '来源表' }]);
     if (d.details && d.details.length) { h += '<h3 style="margin:12px 0 6px">明细 Top</h3>' + rowsTable(d.details, DETAIL_COLS); }
     $('brand-result').innerHTML = h;
   });
