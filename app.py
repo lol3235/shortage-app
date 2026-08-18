@@ -19,11 +19,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import db
 import logic
 import sync
+import sync_sheetmetal
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(HERE, "static")
 DB_PATH = os.path.join(HERE, "data", "shortage.db")
 SEED_PATH = os.path.join(HERE, "data", "seed.sql")
+SHEETMETAL_DB = db.SHEETMETAL_DB
+SHEETMETAL_SEED = db.SHEETMETAL_SEED
 PORT = int(os.environ.get("PORT", "8765"))
 
 AUTO_SYNC_INTERVAL = int(os.environ.get("AUTO_SYNC_INTERVAL", "30"))
@@ -85,6 +88,10 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", GITHUB_TOKEN)
 _sync_lock = threading.Lock()
 sync_state = {"syncing": False, "last_sync": None, "last_count": 0, "error": None}
 
+# 钣金欠料（金山文档）同步状态
+_sm_lock = threading.Lock()
+sm_state = {"syncing": False, "last_sync": None, "last_count": 0, "error": None}
+
 
 def _load_active():
     return logic.filter_active(db.get_all(DB_PATH))
@@ -115,6 +122,27 @@ def do_sync():
     finally:
         with _sync_lock:
             sync_state["syncing"] = False
+
+
+def do_sync_sheetmetal():
+    with _sm_lock:
+        if sm_state["syncing"]:
+            return {"ok": False, "message": "同步进行中"}
+        sm_state["syncing"] = True
+        sm_state["error"] = None
+    try:
+        n, t = sync_sheetmetal.sync_to_db()
+        with _sm_lock:
+            sm_state["last_sync"] = t
+            sm_state["last_count"] = n
+        return {"ok": True, "count": n, "synced_at": t}
+    except Exception as e:
+        with _sm_lock:
+            sm_state["error"] = str(e)
+        return {"ok": False, "error": str(e)}
+    finally:
+        with _sm_lock:
+            sm_state["syncing"] = False
 
 
 # ---------------- API ----------------
@@ -160,6 +188,35 @@ def api_settings():
     }
 
 
+def api_sheetmetal_overview():
+    return logic.sheetmetal_overview(db.get_all_sheetmetal())
+
+
+def api_sheetmetal_search(kw):
+    return logic.sheetmetal_search(db.get_all_sheetmetal(), kw)
+
+
+def api_sheetmetal_sync_status():
+    with _sm_lock:
+        st = dict(sm_state)
+    meta = db.get_sheetmetal_meta()
+    st["db_last_sync"] = meta.get("last_sync")
+    st["db_last_count"] = meta.get("last_count")
+    return st
+
+
+def api_sheetmetal_settings():
+    meta = db.get_sheetmetal_meta()
+    return {
+        "source": sync_sheetmetal.KDOCS_URL,
+        "file_id": sync_sheetmetal.KDOCS_FILE_ID,
+        "db_path": SHEETMETAL_DB,
+        "sheets": meta.get("sheets", {}),
+        "last_sync": meta.get("last_sync"),
+        "last_count": meta.get("last_count"),
+    }
+
+
 ROUTES = {
     "/api/overview": api_overview,
     "/api/search": api_search,
@@ -169,6 +226,10 @@ ROUTES = {
     "/api/eta": api_eta,
     "/api/sync_status": api_sync_status,
     "/api/settings": api_settings,
+    "/api/sheetmetal_overview": api_sheetmetal_overview,
+    "/api/sheetmetal_search": api_sheetmetal_search,
+    "/api/sheetmetal_sync_status": api_sheetmetal_sync_status,
+    "/api/sheetmetal_settings": api_sheetmetal_settings,
 }
 
 
@@ -214,6 +275,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json(api_brand(qs.get("kw", [""])[0]))
                 elif path == "/api/eta":
                     self._send_json(api_eta(qs.get("kw", [""])[0]))
+                elif path == "/api/sheetmetal_search":
+                    self._send_json(api_sheetmetal_search(qs.get("kw", [""])[0]))
                 else:
                     self._send_json(ROUTES[path]())
             except Exception as e:
@@ -247,6 +310,14 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=do_sync, daemon=True).start()
             self._send_json({"accepted": True, "message": "已开始同步"})
             return
+        if parsed.path == "/api/sheetmetal_sync":
+            with _sm_lock:
+                if sm_state["syncing"]:
+                    self._send_json({"accepted": False, "message": "同步进行中", **api_sheetmetal_sync_status()})
+                    return
+            threading.Thread(target=do_sync_sheetmetal, daemon=True).start()
+            self._send_json({"accepted": True, "message": "已开始同步钣金欠料"})
+            return
         self._send_json({"error": "unknown post"}, 404)
 
     def log_message(self, *args):
@@ -255,29 +326,48 @@ class Handler(BaseHTTPRequestHandler):
 
 def _seed_if_empty():
     """云端环境无 wecom-cli，db 为空时从内置 seed.sql 快照初始化数据。"""
+    # 欠料（企业微信）
     try:
         n = len(db.get_all(DB_PATH))
     except Exception:
         n = 0
-    if n > 0:
-        return
-    seed = os.path.join(HERE, "data", "seed.sql")
-    if not os.path.exists(seed):
-        return
-    import sqlite3
-    conn = sqlite3.connect(DB_PATH)
+    if n == 0:
+        seed = os.path.join(HERE, "data", "seed.sql")
+        if os.path.exists(seed):
+            import sqlite3
+            conn = sqlite3.connect(DB_PATH)
+            try:
+                conn.executescript(open(seed, encoding="utf-8").read())
+                conn.commit()
+                print("seed.sql 初始化完成（云端使用本地同步快照）")
+            except Exception as e:
+                conn.rollback()
+                err = "seed 初始化失败: %s" % e
+                print(err)
+                with _sync_lock:
+                    sync_state["error"] = err
+            finally:
+                conn.close()
+
+    # 钣金欠料（金山文档）快照初始化
     try:
-        conn.executescript(open(seed, encoding="utf-8").read())
-        conn.commit()
-        print("seed.sql 初始化完成（云端使用本地同步快照）")
-    except Exception as e:
-        conn.rollback()
-        err = "seed 初始化失败: %s" % e
-        print(err)
-        with _sync_lock:
-            sync_state["error"] = err
-    finally:
-        conn.close()
+        sn = len(db.get_all_sheetmetal())
+    except Exception:
+        sn = 0
+    if sn == 0:
+        sm_seed = os.path.join(HERE, "data", "seed_sheetmetal.sql")
+        if os.path.exists(sm_seed):
+            import sqlite3
+            conn = sqlite3.connect(SHEETMETAL_DB)
+            try:
+                conn.executescript(open(sm_seed, encoding="utf-8").read())
+                conn.commit()
+                print("seed_sheetmetal.sql 初始化完成（云端使用本地同步快照）")
+            except Exception as e:
+                conn.rollback()
+                print("seed_sheetmetal 初始化失败: %s" % e)
+            finally:
+                conn.close()
 
 
 def _ensure_meta():
@@ -341,20 +431,20 @@ def _git_push_seed():
         _run_git(["git", "config", "user.email", "app@local.dev"], check=False)
         _run_git(["git", "config", "user.name", "shortage-app"], check=False)
         _run_git(["git", "remote", "set-url", "origin", authed_repo])
-        _run_git(["git", "add", "data/seed.sql"])
-        msg = "sync: update seed.sql at %s" % datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        _run_git(["git", "add", "data/seed.sql", "data/seed_sheetmetal.sql"])
+        msg = "sync: update seed data at %s" % datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         commit_r = subprocess.run(
-            [GIT_EXE, "commit", "-m", msg, "data/seed.sql"],
+            [GIT_EXE, "commit", "-m", msg, "data/seed.sql", "data/seed_sheetmetal.sql"],
             cwd=HERE, capture_output=True, text=True,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if commit_r.returncode != 0:
             out = (commit_r.stdout + commit_r.stderr).lower()
             if "nothing to commit" in out or "no changes" in out:
-                print("[auto-sync] seed.sql 无变化，无需提交")
+                print("[auto-sync] seed 无变化，无需提交")
                 return
             raise RuntimeError("git commit failed: %s" % (commit_r.stderr or commit_r.stdout))
         _run_git(["git", "push", "origin", "main"])
-        print("[auto-sync] seed.sql 已推送，Render 将自动重新部署")
+        print("[auto-sync] seed 已推送，Render 将自动重新部署")
     except Exception as e:
         print("[auto-sync] 推送失败: %s (git=%s PATH=%s)" % (
             e, GIT_EXE, os.environ.get("PATH", "")[:300]))
@@ -366,30 +456,44 @@ def _git_push_seed():
                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
+def _export_and_check_seed(path, exporter, db_path):
+    """导出 seed 并比较 hash；返回是否有变化。"""
+    old = _file_hash(path)
+    exporter(db_path, path)
+    return old != _file_hash(path)
+
+
 def _auto_sync_loop():
-    """后台循环：定时同步 -> 导出 seed.sql -> 有变化则 push -> Render 自动重部署。"""
+    """后台循环：定时同步 -> 导出 seed -> 有变化则 push -> Render 自动重部署。
+
+    同时处理「欠料（企业微信）」与「钣金欠料（金山文档）」两套独立数据。
+    """
     if AUTO_SYNC_INTERVAL <= 0:
         return
-    if not os.path.exists(sync.WECOM_CMD) and not sync._use_api_mode():
-        print("[auto-sync] 未检测到 wecom-cli 且未配置 API 凭证，跳过自动同步")
+    if (not os.path.exists(sync.WECOM_CMD) and not sync._use_api_mode()
+            and not os.path.exists(sync_sheetmetal.KDOCS_CLI)):
+        print("[auto-sync] 未检测到 wecom-cli / kdocs-cli，跳过自动同步")
         return
-    print("[auto-sync] 每 %d 秒自动同步一次；数据变化时推送 seed.sql" % AUTO_SYNC_INTERVAL)
+    print("[auto-sync] 每 %d 秒自动同步一次；数据变化时推送 seed" % AUTO_SYNC_INTERVAL)
     while True:
         time.sleep(AUTO_SYNC_INTERVAL)
+        changed = False
         try:
-            result = do_sync()
-            if not result.get("ok"):
-                err = result.get("error") or result.get("message")
-                print("[auto-sync] 同步未成功: %s" % err)
-                continue
-            old_hash = _file_hash(SEED_PATH)
-            db.export_seed_sql(DB_PATH, SEED_PATH)
-            new_hash = _file_hash(SEED_PATH)
-            if old_hash == new_hash:
-                print("[auto-sync] 数据无变化，跳过推送")
-                continue
-            print("[auto-sync] 数据已更新 (%d 条)，准备推送 seed.sql" % result.get("count", 0))
-            if AUTO_GIT_PUSH:
+            # —— 欠料（企业微信）——
+            r1 = do_sync()
+            if r1.get("ok"):
+                if _export_and_check_seed(SEED_PATH, db.export_seed_sql, DB_PATH):
+                    changed = True
+            else:
+                print("[auto-sync] 欠料同步未成功: %s" % (r1.get("error") or r1.get("message")))
+            # —— 钣金欠料（金山文档）——
+            r2 = do_sync_sheetmetal()
+            if r2.get("ok"):
+                if _export_and_check_seed(SHEETMETAL_SEED, db.export_sheetmetal_seed_sql, SHEETMETAL_DB):
+                    changed = True
+            else:
+                print("[auto-sync] 钣金同步未成功: %s" % (r2.get("error") or r2.get("message")))
+            if changed and AUTO_GIT_PUSH:
                 _git_push_seed()
         except Exception as e:
             print("[auto-sync] 异常: %s" % e)

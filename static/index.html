@@ -18,6 +18,7 @@
         <li data-page="material">物料汇总</li>
         <li data-page="brand">品牌汇总</li>
         <li data-page="eta">交期对比</li>
+        <li data-page="sheetmetal">钣金欠料</li>
         <li data-page="sync">数据同步</li>
         <li data-page="settings">设置</li>
       </ul>
@@ -97,6 +98,41 @@
             <button id="btn-eta">判定</button>
           </div>
           <div id="eta-result"></div>
+        </div>
+
+        <!-- 钣金欠料 -->
+        <div class="page hidden" id="page-sheetmetal">
+          <div id="sm-cards" class="cards"></div>
+          <div class="panel">
+            <h3>分表分布</h3>
+            <div id="sm-by-sheet"></div>
+          </div>
+          <div class="panel-row">
+            <div class="panel">
+              <h3>设备类别（巨茂）</h3>
+              <div id="sm-by-category"></div>
+            </div>
+            <div class="panel">
+              <h3>供应商（非巨茂）</h3>
+              <div id="sm-by-supplier"></div>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>批次分布</h3>
+            <div id="sm-by-batch"></div>
+          </div>
+          <div class="toolbar">
+            <input id="sm-kw" placeholder="搜索 项目/供应商/物料编码/名称/批次/到货情况…">
+            <select id="sm-filter">
+              <option value="all">全部</option>
+              <option value="shortage">仅欠料</option>
+              <option value="arrived">仅已到货</option>
+            </select>
+            <button id="btn-sm-search">查询</button>
+            <button id="btn-sm-sync">🔄 同步钣金</button>
+            <span id="sm-sync-info" class="muted"></span>
+          </div>
+          <div id="sm-result"></div>
         </div>
 
         <!-- 数据同步 -->

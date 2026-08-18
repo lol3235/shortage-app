@@ -263,6 +263,65 @@ def eta_check(items, kw):
     return {"keyword": kw, "rows": len(rows), "late": late, "results": results[:30]}
 
 
+# ---------------- 钣金欠料（箱体进度统计）----------------
+def sheetmetal_is_arrived(item):
+    """到货情况含「已到货」视为已到货；未到货 / 空 / 其它为欠料。"""
+    a = (item.get("arrival") or "").strip()
+    if not a:
+        return False
+    return "已到货" in a
+
+
+def sheetmetal_active(items):
+    """钣金欠料：未到货（不含「已到货」）视为欠料。"""
+    return [i for i in items if not sheetmetal_is_arrived(i)]
+
+
+def sheetmetal_overview(items):
+    """钣金欠料总览：总量 / 已到货 / 欠料 / 分表与维度分布。"""
+    if not items:
+        return {"total": 0, "total_qty": 0, "arrived": 0, "shortage": 0,
+                "shortage_qty": 0, "sheets": 0, "by_sheet": {},
+                "by_category": [], "by_supplier": [], "by_batch": []}
+    arrived = [i for i in items if sheetmetal_is_arrived(i)]
+    shortage = [i for i in items if not sheetmetal_is_arrived(i)]
+    by_sheet = Counter(i.get("sheet") or "未知" for i in items)
+    by_cat = Counter(i.get("category") for i in items if i.get("category"))
+    by_sup = Counter(i.get("supplier") for i in items if i.get("supplier"))
+    by_batch = Counter(i.get("batch") for i in items
+                       if i.get("batch") and i.get("batch") != "合计")
+    return {
+        "total": len(items),
+        "total_qty": sum(int(i.get("qty") or 0) for i in items),
+        "arrived": len(arrived),
+        "shortage": len(shortage),
+        "shortage_qty": sum(int(i.get("qty") or 0) for i in shortage),
+        "sheets": len(by_sheet),
+        "by_sheet": dict(by_sheet),
+        "by_category": [{"category": k, "count": v} for k, v in by_cat.most_common()],
+        "by_supplier": [{"supplier": k, "count": v} for k, v in by_sup.most_common()],
+        "by_batch": [{"batch": k, "count": v} for k, v in by_batch.most_common()],
+    }
+
+
+def sheetmetal_search(items, kw):
+    """钣金欠料查询：跨全部字段模糊匹配；kw 为空返回全部。附 arrived 标记。"""
+    kw = (kw or "").strip().lower()
+    if kw:
+        fields = ["sheet", "batch", "drawing_date", "delivery_date", "project",
+                  "category", "supplier", "po_no", "material_code", "name",
+                  "spec", "arrival", "eta", "arrival_date", "note"]
+        rows = [i for i in items if any(kw in str(i.get(f, "")).lower() for f in fields)]
+    else:
+        rows = list(items)
+    out = []
+    for i in rows:
+        r = dict(i)
+        r["arrived"] = sheetmetal_is_arrived(i)
+        out.append(r)
+    return {"keyword": kw, "rows": len(out), "items": out}
+
+
 # ---- 口语尾缀剥离（前端查询框使用）----
 TAIL_SUFFIX = r"(?:品牌|材料|物料|型号|系列|规格|配件|零件|项目|公司|厂家)\s*$"
 HEAD_PREFIX = (r"(?:请问一下|请问|查一下|查询|查看|看看|看一下|看下|"

@@ -183,6 +183,170 @@ def export_seed_sql(db_path=DEFAULT_DB, seed_path=None):
         conn.close()
 
 
+# ---------------- 钣金欠料（箱体进度统计）独立库 ----------------
+SHEETMETAL_DB = os.path.join(HERE, "data", "sheetmetal.db")
+SHEETMETAL_SEED = os.path.join(HERE, "data", "seed_sheetmetal.sql")
+
+SHEETMETAL_SCHEMA = """
+CREATE TABLE IF NOT EXISTS sheetmetal_items (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    sheet         TEXT,
+    batch         TEXT,
+    drawing_date  TEXT,
+    delivery_date TEXT,
+    project       TEXT,
+    category      TEXT,
+    supplier      TEXT,
+    po_no         TEXT,
+    material_code TEXT,
+    name          TEXT,
+    spec          TEXT,
+    qty           INTEGER,
+    arrival       TEXT,
+    eta           TEXT,
+    arrival_date  TEXT,
+    note          TEXT,
+    synced_at     TEXT
+);
+CREATE TABLE IF NOT EXISTS meta_sheetmetal (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
+"""
+
+SHEETMETAL_FIELDS = [
+    "sheet", "batch", "drawing_date", "delivery_date", "project", "category",
+    "supplier", "po_no", "material_code", "name", "spec", "qty",
+    "arrival", "eta", "arrival_date", "note",
+]
+
+
+def init_sheetmetal_db(path=SHEETMETAL_DB):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    conn = sqlite3.connect(path)
+    conn.executescript(SHEETMETAL_SCHEMA)
+    conn.commit()
+    return conn
+
+
+def upsert_sheetmetal_items(items, synced_at=None, path=SHEETMETAL_DB):
+    """清空并批量写入钣金欠料（整表替换）。事务提交，失败回滚。"""
+    if synced_at is None:
+        synced_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    init_sheetmetal_db(path)
+    conn = _conn(path)
+    try:
+        conn.execute("BEGIN")
+        conn.execute("DELETE FROM sheetmetal_items")
+        for it in items:
+            row = {f: it.get(f) for f in SHEETMETAL_FIELDS}
+            try:
+                row["qty"] = int(it.get("qty") or 0)
+            except (ValueError, TypeError):
+                row["qty"] = 0
+            row["synced_at"] = synced_at
+            cols = ", ".join(SHEETMETAL_FIELDS + ["synced_at"])
+            placeholders = ", ".join("?" for _ in SHEETMETAL_FIELDS + ["synced_at"])
+            conn.execute(
+                "INSERT INTO sheetmetal_items (%s) VALUES (%s)" % (cols, placeholders),
+                [row[f] for f in SHEETMETAL_FIELDS] + [synced_at],
+            )
+        conn.execute(
+            "INSERT INTO meta_sheetmetal(key, value) VALUES('last_sync', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (synced_at,),
+        )
+        conn.execute(
+            "INSERT INTO meta_sheetmetal(key, value) VALUES('last_count', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (str(len(items)),),
+        )
+        conn.commit()
+        return len(items)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def get_all_sheetmetal(path=SHEETMETAL_DB):
+    conn = _conn(path)
+    try:
+        rows = conn.execute("SELECT * FROM sheetmetal_items").fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_sheetmetal_meta(path=SHEETMETAL_DB):
+    conn = _conn(path)
+    try:
+        rows = conn.execute("SELECT key, value FROM meta_sheetmetal").fetchall()
+        meta = {r["key"]: r["value"] for r in rows}
+        sheets = conn.execute(
+            "SELECT sheet, COUNT(*) AS c FROM sheetmetal_items GROUP BY sheet ORDER BY c DESC"
+        ).fetchall()
+        meta["sheets"] = {r["sheet"]: r["c"] for r in sheets}
+        return meta
+    finally:
+        conn.close()
+
+
+def export_sheetmetal_seed_sql(db_path=SHEETMETAL_DB, seed_path=None):
+    """把 sheetmetal_items 与 meta_sheetmetal 导出为可重复执行的 INSERT SQL（供 Render 初始化）。"""
+    if seed_path is None:
+        seed_path = SHEETMETAL_SEED
+    cols = SHEETMETAL_FIELDS + ["synced_at"]
+    conn = _conn(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT %s FROM sheetmetal_items ORDER BY id" % ", ".join(cols)
+        ).fetchall()
+        meta_rows = conn.execute(
+            "SELECT key, value FROM meta_sheetmetal WHERE key IN ('last_sync', 'last_count')"
+        ).fetchall()
+        meta = {r["key"]: r["value"] for r in meta_rows}
+        last_sync = meta.get("last_sync", "")
+        lines = [
+            "-- shortage-app sheetmetal seed.sql",
+            "-- last_sync: %s" % last_sync,
+            "-- rows: %d" % len(rows),
+            "DELETE FROM sheetmetal_items;",
+        ]
+        for r in rows:
+            vals = []
+            for c in cols:
+                v = r[c]
+                if v is None:
+                    vals.append("NULL")
+                elif isinstance(v, (int, float)):
+                    vals.append(str(v))
+                else:
+                    vals.append("'%s'" % str(v).replace("'", "''"))
+            lines.append(
+                "INSERT INTO sheetmetal_items (%s) VALUES (%s);"
+                % (", ".join(cols), ", ".join(vals))
+            )
+        lines.append("DELETE FROM meta_sheetmetal WHERE key IN ('last_sync', 'last_count');")
+        if last_sync:
+            lines.append(
+                "INSERT INTO meta_sheetmetal (key, value) VALUES ('last_sync', '%s');"
+                % last_sync.replace("'", "''")
+            )
+        if meta.get("last_count"):
+            lines.append(
+                "INSERT INTO meta_sheetmetal (key, value) VALUES ('last_count', '%s');"
+                % meta["last_count"].replace("'", "''")
+            )
+        with open(seed_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write("\n".join(lines))
+            f.write("\n")
+        return len(rows)
+    finally:
+        conn.close()
+
+
 if __name__ == "__main__":
     c = init_db()
     c.close()

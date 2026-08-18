@@ -35,6 +35,7 @@ document.querySelectorAll('#sidebar li').forEach(li => {
     if (page === 'overview') loadOverview();
     if (page === 'settings') loadSettings();
     if (page === 'sync') refreshSyncInfo();
+    if (page === 'sheetmetal') loadSheetmetal();
   });
 });
 
@@ -185,6 +186,99 @@ $('btn-eta').addEventListener('click', () => {
   });
 });
 
+// ---------- 钣金欠料（箱体进度统计）----------
+function loadSheetmetal() {
+  API('/api/sheetmetal_overview').then(d => renderSheetmetalOverview(d));
+  loadSheetmetalDetail();
+}
+
+function renderSheetmetalOverview(d) {
+  $('sm-cards').innerHTML = `
+    <div class="card"><div class="num">${d.total}</div><div class="lbl">条目总数</div></div>
+    <div class="card"><div class="num">${d.total_qty}</div><div class="lbl">合计数量</div></div>
+    <div class="card"><div class="num" style="color:#b91c1c">${d.shortage}</div><div class="lbl">欠料条数</div></div>
+    <div class="card"><div class="num" style="color:#b91c1c">${d.shortage_qty}</div><div class="lbl">欠料数量</div></div>
+    <div class="card"><div class="num" style="color:#15803d">${d.arrived}</div><div class="lbl">已到货</div></div>
+    <div class="card"><div class="num">${d.sheets}</div><div class="lbl">分表数</div></div>`;
+  $('sm-by-sheet').innerHTML = smBarRows(d.by_sheet, 'sheet');
+  $('sm-by-category').innerHTML = smBarRows(d.by_category, 'category');
+  $('sm-by-supplier').innerHTML = smBarRows(d.by_supplier, 'supplier');
+  $('sm-by-batch').innerHTML = smBarRows(d.by_batch, 'batch');
+}
+
+function smBarRows(data, labelKey) {
+  let arr;
+  if (Array.isArray(data)) arr = data;
+  else arr = Object.entries(data || {}).map(([k, v]) => ({ [labelKey]: k, count: v }));
+  if (!arr.length) return '<p class="muted">无数据</p>';
+  const max = Math.max(1, ...arr.map(x => x.count || 0));
+  return arr.map(x => `<div class="bar-row"><div class="name">${esc(x[labelKey])}</div>
+    <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, (x.count || 0) / max * 100)}%"></div></div>
+    <div class="val">${x.count || 0}</div></div>`).join('');
+}
+
+let currentSmFilter = 'all';
+function loadSheetmetalDetail() {
+  const kw = $('sm-kw').value.trim();
+  currentSmFilter = $('sm-filter').value;
+  API('/api/sheetmetal_search', { kw }).then(d => {
+    if (d.error) { $('sm-result').innerHTML = `<p class="error">${esc(d.error)}</p>`; return; }
+    let items = d.items || [];
+    if (currentSmFilter === 'shortage') items = items.filter(i => !i.arrived);
+    else if (currentSmFilter === 'arrived') items = items.filter(i => i.arrived);
+    const label = currentSmFilter === 'shortage' ? '仅欠料' : currentSmFilter === 'arrived' ? '仅已到货' : '全部';
+    $('sm-result').innerHTML = `<p class="muted">命中 ${d.rows} 条，当前显示 ${items.length} 条（${label}）</p>` + renderSheetmetalTable(items);
+  });
+}
+
+const SM_COLS = [
+  { key: 'sheet', label: '来源表' }, { key: 'batch', label: '批次' },
+  { key: 'project', label: '项目' }, { key: 'category', label: '设备类别' },
+  { key: 'supplier', label: '供应商' }, { key: 'po_no', label: '采购单' },
+  { key: 'material_code', label: '物料编码' }, { key: 'name', label: '名称' },
+  { key: 'spec', label: '规格' }, { key: 'qty', label: '数量' },
+  { key: 'arrival', label: '到货情况', badge: true }, { key: 'eta', label: '预计到货' },
+  { key: 'arrival_date', label: '实际到货' }, { key: 'note', label: '备注' },
+];
+
+function renderSheetmetalTable(items) {
+  if (!items || !items.length) return '<p class="muted">未找到数据</p>';
+  const head = SM_COLS.map(c => `<th>${esc(c.label)}</th>`).join('');
+  const body = items.map(r => '<tr>' + SM_COLS.map(c => {
+    if (c.badge) {
+      const arr = !!r.arrived;
+      const txt = r[c.key] || (arr ? '已到货' : '未填');
+      return `<td><span class="tag ${arr ? 'ok' : 'warn'}">${esc(txt)}</span></td>`;
+    }
+    return `<td>${esc(r[c.key])}</td>`;
+  }).join('') + '</tr>').join('');
+  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+$('btn-sm-search').addEventListener('click', loadSheetmetalDetail);
+$('sm-filter').addEventListener('change', loadSheetmetalDetail);
+$('sm-kw').addEventListener('keydown', e => { if (e.key === 'Enter') loadSheetmetalDetail(); });
+
+// 钣金同步
+function triggerSmSync() {
+  POST('/api/sheetmetal_sync').then(() => {
+    $('sm-sync-info').textContent = '同步中…';
+    pollSmSync();
+  });
+}
+function pollSmSync() {
+  const t = setInterval(() => {
+    API('/api/sheetmetal_sync_status').then(d => {
+      $('sm-sync-info').textContent = d.syncing ? '同步中…' : (d.error ? '失败：' + d.error : '完成 ✓');
+      if (!d.syncing) {
+        clearInterval(t);
+        if (!d.error) loadSheetmetal();
+      }
+    });
+  }, 1500);
+}
+$('btn-sm-sync').addEventListener('click', triggerSmSync);
+
 // ---------- 同步 ----------
 function refreshSyncInfo() {
   API('/api/sync_status').then(d => {
@@ -237,6 +331,7 @@ function refreshCurrent() {
   if (currentPage === 'overview') return loadOverview();
   if (currentPage === 'sync') return refreshSyncInfo();
   if (currentPage === 'settings') return loadSettings();
+  if (currentPage === 'sheetmetal') return loadSheetmetal();
   // 查询类页面：仅当输入框有内容时才自动重拉，避免无意义抖动
   const qmap = {
     search:   ['search-kw',  'btn-search'],
