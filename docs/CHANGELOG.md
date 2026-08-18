@@ -5,6 +5,19 @@
 
 ---
 
+## v1.5 · 2026-08-18 · 新增钣金欠料独立模块
+
+| 提交 | 类型 | 说明 |
+|---|---|---|
+| `bf35c65` | feat | 新增「钣金欠料」独立模块：接入金山文档「箱体进度统计」表（kdocs file_id `HeqbtFcx3rMqYYFRpA9n1xZrPzbTeaL4X`），与企微主线平行，独立数据库 `data/sheetmetal.db` + 快照 `data/seed_sheetmetal.sql` |
+| `bf35c65` | feat | 数据层 `db.py` 新增 `sheetmetal_items` / `meta_sheetmetal` 表及 upsert / get_all / get_meta / export_sheetmetal_seed_sql；`sync_sheetmetal.py` 经 `kdocs-cli` 拉取两个明细分表（巨茂 `5A-巨茂箱体进度8.17` / 非巨茂 `箱体进度统计（非巨茂）`）归一化入库；`_bootstrap_sheetmetal.py` 支持一键初始化 |
+| `bf35c65` | feat | 聚合 `logic.sheetmetal_overview` / `sheetmetal_search` / `sheetmetal_is_arrived`；`app.py` 新增 `/api/sheetmetal_*` 四路由 + 钣金同步线程；前端 `static/` 新增「钣金欠料」导航页（指标卡 + 分表/类别/供应商/批次分布 + 模糊查询/筛选 + 同步按钮） |
+| `bf35c65` | docs | PRD 升 v1.5，新增 §3.9「钣金欠料」章节；本 CHANGELOG 补 v1.5 条目 |
+
+**本期核心变化**：在既有企微欠料主线之外，新增一条**独立数据源**（金山文档箱体进度统计）的欠料跟踪模块，沿用「独立 DB + 独立 seed + 自动同步 + 双形态部署」架构；到货判定以「到货情况」文本为准（含「已到货」即视为到货），未引入结构化状态列。
+
+---
+
 ## v1.3 · 2026-08-12 · 在线表写回（方案 B）
 
 | 提交 | 类型 | 说明 |
