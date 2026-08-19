@@ -5,6 +5,20 @@
 
 ---
 
+## v1.5.9 · 2026-08-19 · 总览新增本周新增材料采购及时率卡片
+
+| 提交 | 类型 | 说明 |
+|---|---|---|
+| `db.py` | feat | 新增 `sync_snapshot` 与 `weekly_new_items` 表；新增 `_item_key`、`get_last_snapshot`、`save_snapshot`、`record_weekly_new_items`、`get_weekly_new_items`、`clean_old_weekly_items` |
+| `sync.py` | feat | `sync_to_db` 同步完成后与上次快照对比，识别真正新增的（项目编码+物料编码）组合并写入 `weekly_new_items`；保存本次快照并清理过期记录 |
+| `logic.py` | feat | 新增 `weekly_punctuality_rate()`：读取本周新增条目，按状态含“已到货/已解决/已完成”计算采购及时率；`overview()` 返回 `weekly_rate` 字段 |
+| `static/app.js` | ui | 总览指标卡由 4 张扩展为 5 张，新增“本周新增材料采购及时率”卡片，显示百分比、颜色分档（≥80%绿 / 60-80%橙 / <60%红）及“及时 X/Y” |
+| `docs/PRD.md` | docs | PRD 升 v1.5.9，§3.1 更新 5 张指标卡及本周新增采购及时率口径 |
+
+**本期核心变化**：总览新增第 5 张指标卡“本周新增的材料采购及时率”。通过同步快照diff识别真正新增条目，避免把旧数据重复刷新误判为新增；以“已到货/已解决”状态判定采购是否及时。
+
+---
+
 ## v1.5.8 · 2026-08-19 · 汇总面板默认展示全部，搜索框再过滤
 
 | 提交 | 类型 | 说明 |

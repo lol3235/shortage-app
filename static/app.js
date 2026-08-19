@@ -60,11 +60,20 @@ function openProject(name) {
 // ---------- 总览 ----------
 function loadOverview() {
   API('/api/overview').then(d => {
+    const wr = d.weekly_rate || {};
+    const wrNum = wr.rate != null ? `${wr.rate}%` : (wr.label || '—');
+    const wrColor = wr.rate != null ? (wr.rate >= 80 ? '#15803d' : (wr.rate >= 60 ? '#b45309' : '#b91c1c')) : '#6b7280';
+    const wrSub = wr.rate != null ? `及时 ${wr.on_time}/${wr.total}` : (wr.label || '本周暂无新增');
     $('cards').innerHTML = `
       <div class="card"><div class="num">${d.total}</div><div class="lbl">欠料条数</div></div>
       <div class="card"><div class="num">${d.total_qty}</div><div class="lbl">合计欠料数量</div></div>
       <div class="card"><div class="num">${d.urgent}</div><div class="lbl">紧急条目(空白/无交期/付款)</div></div>
-      <div class="card"><div class="num">${d.sheets}</div><div class="lbl">已同步分表</div></div>`;
+      <div class="card"><div class="num">${d.sheets}</div><div class="lbl">已同步分表</div></div>
+      <div class="card" title="本周新增材料中状态为已到货/已解决的占比">
+        <div class="num" style="color:${wrColor}">${wrNum}</div>
+        <div class="lbl">本周新增材料采购及时率</div>
+        <div class="lbl" style="font-size:12px;color:#6b7280;margin-top:2px">${wrSub}</div>
+      </div>`;
     const st = d.by_status || {};
     $('by-status').innerHTML = Object.keys(st).map(k =>
       `<div class="bar-row"><div class="name">${esc(k)}</div>

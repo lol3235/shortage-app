@@ -66,10 +66,10 @@ def _parse_date(s):
 
 
 def overview(items):
-    """总览聚合：指标 + 紧急度分布 + 项目 TOP。"""
+    """总览聚合：指标 + 紧急度分布 + 项目 TOP + 本周新增采购及时率。"""
     if not items:
         return {"total": 0, "total_qty": 0, "urgent": 0, "sheets": 0,
-                "by_status": {}, "by_project": []}
+                "by_status": {}, "by_project": [], "weekly_rate": weekly_punctuality_rate()}
     by_status = Counter(i.get("eta_status", "其他") for i in items)
     by_project = defaultdict(lambda: {"count": 0, "sheets": Counter()})
     for i in items:
@@ -88,6 +88,31 @@ def overview(items):
             [{"project": p, "count": info["count"], "sheets": _fmt_sheets(info["sheets"])}
              for p, info in by_project.items()],
             key=lambda x: -x["count"])[:10],
+        "weekly_rate": weekly_punctuality_rate(),
+    }
+
+
+def weekly_punctuality_rate():
+    """本周新增材料采购及时率：真正新增条目中，状态为已到货/已解决的占比。"""
+    import db
+    rows = db.get_weekly_new_items()
+    total = len(rows)
+    if not total:
+        return {"rate": None, "total": 0, "on_time": 0, "late": 0,
+                "label": "本周暂无新增", "week_start": None}
+    on_time = 0
+    for r in rows:
+        st = (r.get("status") or "").strip()
+        if any(k in st for k in ("已到货", "已解决", "已完成", "完成")):
+            on_time += 1
+    rate = round(on_time / total * 100, 1)
+    return {
+        "rate": rate,
+        "total": total,
+        "on_time": on_time,
+        "late": total - on_time,
+        "label": "%s%%" % rate,
+        "week_start": rows[0].get("week_start") if rows else None,
     }
 
 

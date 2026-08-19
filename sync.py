@@ -348,10 +348,18 @@ def _fetch_via_api(timeout=30):
     return dj.get("content", "") or dj.get("markdown", "")
 
 
+def _item_key(item):
+    """业务标识：项目编码|物料编码；项目编码为空时用项目名称兜底。"""
+    pc = (item.get("项目编码") or item.get("项目") or "").strip()
+    mc = (item.get("物料编码") or "").strip()
+    return "%s|%s" % (pc, mc)
+
+
 def sync_to_db(offline_md=None, db_path=None):
     """拉取(或离线)并解析，写入 SQLite。返回 (条数, synced_at)。失败抛异常（保留旧数据）。
 
     数据源：offline_md(测试) > 企微 API(若配凭证) > 本地 wecom-cli。
+    同步完成后对比上次快照，识别真正新增的条目并记录到 weekly_new_items。
     """
     if db_path is None:
         db_path = db.DEFAULT_DB
@@ -366,9 +374,27 @@ def sync_to_db(offline_md=None, db_path=None):
     else:
         md = fetch_markdown()
     items = parse_markdown(md)
-    from datetime import datetime
+    from datetime import datetime, timedelta
     synced_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     db.upsert_items(items, synced_at, path=db_path)
+
+    # --- 识别真正新增条目 ---
+    try:
+        last_keys = db.get_last_snapshot(path=db_path)
+        current_keys = {_item_key(i) for i in items}
+        new_keys = current_keys - last_keys
+        if new_keys:
+            new_items = [i for i in items if _item_key(i) in new_keys]
+            today = datetime.now().date()
+            week_start = (today - timedelta(days=today.weekday())).isoformat()
+            db.record_weekly_new_items(new_items, week_start, synced_at, path=db_path)
+            print("[sync] 本周新增 %d 条材料" % len(new_items))
+        db.save_snapshot(items, synced_at, path=db_path)
+        db.clean_old_weekly_items(path=db_path)
+    except Exception as e:
+        # 快照/新增记录失败不影响主同步，仅打印日志
+        print("[sync] 新增快照记录失败: %s" % e)
+
     return len(items), synced_at
 
 
