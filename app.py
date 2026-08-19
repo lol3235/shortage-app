@@ -414,6 +414,7 @@ def _run_git(cmd, check=True):
     """运行 git 命令，使用探测到的 GIT_EXE 绝对路径，避免 pythonw PATH 不全。"""
     real_cmd = [GIT_EXE] + cmd[1:]
     r = subprocess.run(real_cmd, cwd=HERE, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace",
                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if check and r.returncode != 0:
         raise RuntimeError("git %s failed: %s" % (cmd[1], r.stderr or r.stdout))
@@ -436,6 +437,7 @@ def _git_push_seed():
         commit_r = subprocess.run(
             [GIT_EXE, "commit", "-m", msg, "data/seed.sql", "data/seed_sheetmetal.sql"],
             cwd=HERE, capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if commit_r.returncode != 0:
             out = (commit_r.stdout + commit_r.stderr).lower()
@@ -596,6 +598,7 @@ def main():
             pass
 
     db.init_db(DB_PATH)
+    db.init_sheetmetal_db(SHEETMETAL_DB)
     _seed_if_empty()
     _ensure_meta()
     _update_sync_state()

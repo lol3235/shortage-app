@@ -31,11 +31,11 @@ DETAIL_SHEETS = [
 ]
 
 # 列布局（0-based 索引）
-# 巨茂：图纸批次/图纸时间/交货时间/設備類別/品名规格/图纸编号/数量/到货情况/预计到货时间/实际到货时间/壹月发货批次
+# 巨茂：序号/图纸批次/图纸时间/项目名称/供应商/設備類別/品名/规格型号图纸编号/数量/到货情况/预计到货时间/实际到货时间/壹月发货批次
 JUMAO_COLS = {
-    "batch": 0, "drawing_date": 1, "delivery_date": 2, "category": 3,
-    "name": 4, "material_code": 5, "qty": 6, "arrival": 7,
-    "eta": 8, "arrival_date": 9, "note": 10,
+    "batch": 1, "drawing_date": 2, "project": 3, "supplier": 4,
+    "category": 5, "name": 6, "material_code": 7, "qty": 8,
+    "arrival": 9, "eta": 10, "arrival_date": 11, "note": 12,
 }
 # 非巨茂：序号/图纸时间/项目名称/供应商/采购订单号/物料编码/品名/规格型号/数量/到货情况/预计到货时间/实际到货时间
 FEIJUMA_COLS = {
@@ -87,10 +87,10 @@ def normalize_jumao(rows):
             "sheet": "5A-巨茂箱体进度8.17",
             "batch": batch,
             "drawing_date": _cell(r, JUMAO_COLS["drawing_date"]),
-            "delivery_date": _cell(r, JUMAO_COLS["delivery_date"]),
-            "project": "",
+            "delivery_date": "",
+            "project": _cell(r, JUMAO_COLS["project"]),
             "category": _cell(r, JUMAO_COLS["category"]),
-            "supplier": "",
+            "supplier": _cell(r, JUMAO_COLS["supplier"]),
             "po_no": "",
             "material_code": material,
             "name": name,
@@ -188,6 +188,7 @@ def fetch_via_kdocs_cli():
                "--args", json.dumps(params, ensure_ascii=False)]
         try:
             p = subprocess.run(cmd, capture_output=True, text=True, timeout=120,
+                               encoding="utf-8", errors="replace",
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except FileNotFoundError:
             raise RuntimeError("未找到 kdocs-cli（%s），请先安装并 `kdocs-cli auth login`" % KDOCS_CLI)
@@ -199,15 +200,24 @@ def fetch_via_kdocs_cli():
 
 
 def sync_to_db():
-    """生产自动同步入口：拉取 -> 归一化 -> 写入 -> 导出 seed。返回 (写入条数, 同步时间)。"""
+    """生产自动同步入口：拉取 -> 归一化 -> 写入 -> 导出 seed。返回 (写入条数, 同步时间)。
+
+    事务保护：每个明细分表必须解析出至少一条有效记录；任一表明细为空则整体抛异常，
+    不覆盖旧数据，避免列布局变化或拉取异常导致整库被清空。
+    """
     pairs = fetch_via_kdocs_cli()
     items = []
+    sheet_counts = {}
     for name, rows in pairs:
         kind = next((s["kind"] for s in DETAIL_SHEETS if s["name"] == name), None)
         if kind == "jumao":
-            items += normalize_jumao(rows)
+            recs = normalize_jumao(rows)
         else:
-            items += normalize_feijuma(rows)
+            recs = normalize_feijuma(rows)
+        if not recs:
+            raise RuntimeError("分表 `%s` 未解析到有效记录，可能是列布局变化或数据为空" % name)
+        items += recs
+        sheet_counts[name] = len(recs)
     n = db.upsert_sheetmetal_items(items)
     db.export_sheetmetal_seed_sql()
     meta = db.get_sheetmetal_meta()
