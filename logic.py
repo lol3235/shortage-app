@@ -328,6 +328,8 @@ def sheetmetal_overview(items):
     by_sup = Counter(i.get("supplier") for i in items if i.get("supplier"))
 
     # 发货批次分布：按批次聚合，并拆分已到货/未到货 + 剩余需求时间
+    # 剩余时间按「批次交期(批次名)」计算；批次名解析不到日期时，
+    # 才 fallback 到未到货条目中最近的 ETA。已到货(可提前交货)不计入剩余时间。
     batch_groups = defaultdict(list)
     for i in items:
         b = i.get("batch") or ""
@@ -337,14 +339,21 @@ def sheetmetal_overview(items):
     for b, batch_items in sorted(batch_groups.items(), key=lambda kv: -len(kv[1])):
         arr = [i for i in batch_items if sheetmetal_is_arrived(i)]
         sh = [i for i in batch_items if not sheetmetal_is_arrived(i)]
-        sh_days = [_parse_eta_days(i.get("eta")) for i in sh]
-        sh_days = [d for d in sh_days if d is not None]
+        bd = _parse_date(b)
+        if bd:
+            remaining_days = (datetime.date(*bd) - _TODAY()).days
+        elif sh:
+            sh_days = [_parse_eta_days(i.get("eta")) for i in sh]
+            sh_days = [d for d in sh_days if d is not None]
+            remaining_days = min(sh_days) if sh_days else None
+        else:
+            remaining_days = None
         by_batch.append({
             "batch": b,
             "count": len(batch_items),
             "arrived": len(arr),
             "shortage": len(sh),
-            "remaining_days": min(sh_days) if sh_days else None,
+            "remaining_days": remaining_days,
         })
 
     return {
