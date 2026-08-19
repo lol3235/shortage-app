@@ -22,22 +22,43 @@ let currentPage = (document.querySelector('#sidebar li.active') || {}).dataset?.
 let lastKnownSync = null;
 let currentProjectKw = '';
 
+// ---------- 页面切换（带过渡动画） ----------
+function showPage(page, title) {
+  const prev = document.querySelector('.page:not(.hidden)');
+  if (prev && prev.id === 'page-' + page) return; // 已在目标页
+  // 侧栏高亮
+  document.querySelectorAll('#sidebar li').forEach(x => x.classList.remove('active'));
+  const li = document.querySelector('#sidebar li[data-page="' + page + '"]');
+  if (li) li.classList.add('active');
+  currentPage = page;
+  $('page-title').textContent = title || (li ? li.textContent : page);
+  // 隐藏所有页面（清掉残留动画 class）
+  document.querySelectorAll('.page').forEach(p => { p.classList.add('hidden'); p.classList.remove('page-enter'); });
+  // 显示目标页并播放入场动画
+  const target = $('page-' + page);
+  if (target) {
+    target.classList.remove('hidden');
+    void target.offsetWidth; // 强制 reflow，确保动画每次重新触发
+    target.classList.add('page-enter');
+  }
+  // 按页加载数据
+  if (page === 'overview') loadOverview();
+  if (page === 'settings') loadSettings();
+  if (page === 'sync') refreshSyncInfo();
+  if (page === 'sheetmetal') loadSheetmetal();
+  // 汇总/交期页面：点开后立即用空 keyword 展示默认汇总
+  if (page === 'project' && !$('project-kw').value.trim()) $('btn-project').click();
+  if (page === 'material' && !$('material-kw').value.trim()) $('btn-material').click();
+  if (page === 'brand' && !$('brand-kw').value.trim()) $('btn-brand').click();
+  if (page === 'eta' && !$('eta-kw').value.trim()) $('btn-eta').click();
+}
+
 // ---------- 初始化：按 HTML 初始 active 页加载 ----------
 (function initActivePage() {
   if (currentPage !== 'overview') {
     const li = document.querySelector('#sidebar li.active');
     if (li) {
-      $('page-title').textContent = li.textContent;
-      document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
-      const target = $('page-' + currentPage);
-      if (target) target.classList.remove('hidden');
-      if (currentPage === 'settings') loadSettings();
-      if (currentPage === 'sync') refreshSyncInfo();
-      if (currentPage === 'sheetmetal') loadSheetmetal();
-      if (currentPage === 'project' && !$('project-kw').value.trim()) $('btn-project').click();
-      if (currentPage === 'material' && !$('material-kw').value.trim()) $('btn-material').click();
-      if (currentPage === 'brand' && !$('brand-kw').value.trim()) $('btn-brand').click();
-      if (currentPage === 'eta' && !$('eta-kw').value.trim()) $('btn-eta').click();
+      showPage(currentPage, li.textContent);
     }
   }
 })();
@@ -45,34 +66,13 @@ let currentProjectKw = '';
 // ---------- 导航切换 ----------
 document.querySelectorAll('#sidebar li').forEach(li => {
   li.addEventListener('click', () => {
-    document.querySelectorAll('#sidebar li').forEach(x => x.classList.remove('active'));
-    li.classList.add('active');
-    const page = li.dataset.page;
-    currentPage = page;
-    $('page-title').textContent = li.textContent;
-    document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
-    $('page-' + page).classList.remove('hidden');
-    if (page === 'overview') loadOverview();
-    if (page === 'settings') loadSettings();
-    if (page === 'sync') refreshSyncInfo();
-    if (page === 'sheetmetal') loadSheetmetal();
-    // 汇总/交期页面：点开后立即用空 keyword 展示默认汇总
-    if (page === 'project' && !$('project-kw').value.trim()) $('btn-project').click();
-    if (page === 'material' && !$('material-kw').value.trim()) $('btn-material').click();
-    if (page === 'brand' && !$('brand-kw').value.trim()) $('btn-brand').click();
-    if (page === 'eta' && !$('eta-kw').value.trim()) $('btn-eta').click();
+    showPage(li.dataset.page);
   });
 });
 
 // ---------- 跳转项目汇总 ----------
 function openProject(name) {
-  document.querySelectorAll('#sidebar li').forEach(x => x.classList.remove('active'));
-  const li = document.querySelector('#sidebar li[data-page="project"]');
-  if (li) li.classList.add('active');
-  currentPage = 'project';
-  $('page-title').textContent = '项目汇总';
-  document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
-  $('page-project').classList.remove('hidden');
+  showPage('project');
   $('project-kw').value = name;
   $('btn-project').click();
 }
@@ -564,3 +564,4 @@ setInterval(() => {
   }).catch(() => {});
 }, 15000);
 loadOverview();
+refreshSyncInfo();

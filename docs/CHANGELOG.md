@@ -5,6 +5,34 @@
 
 ---
 
+## v1.6.3 · 2026-08-19 · UI 全面毛玻璃化：背景光斑 + 切换过渡 + 高级感视觉
+
+| 提交 | 类型 | 说明 |
+|---|---|---|
+| 优化 | UI | **整站毛玻璃 Glassmorphism 改造** —— 侧栏、顶栏、卡片、面板、输入框、表格、徽章全部加 `backdrop-filter: blur(20px) saturate(170%)` + 半透明白背景 + 细白边；背景从纯灰改为「浅色品牌渐变 + 4 个浮动光斑」（青绿/黄绿大圆 blur 90px 慢速浮动 26-44s） |
+| 优化 | 动画 | **页面切换过渡** —— 抽 `showPage(page, title)` 统一处理导航/跳转项目/初始化三处切换；新页面入场动画 `pageIn`（0.34s cubic-bezier）：opacity 0→1 + translateY 16→0 + scale 0.985→1 + blur 2→0 同步缓动 |
+| 优化 | UI | 按钮升级为胶囊形 + 渐变背景 + hover 上浮阴影；卡片 hover 强化（translateY -3px + 双层阴影 + 白边亮起）；侧栏菜单 hover 右移 3px + active 渐变高亮；告警条 slide-down 入场；滚动条改为青绿主题 |
+| 优化 | UI | 兼容兜底：`@supports not (backdrop-filter)` 时用 0.92 不透明白背景，不支持毛玻璃的浏览器照样可读 |
+| 修复 | UI | init 启动时主动调一次 `refreshSyncInfo()`，避免首次进入非 sync 页面时右上角「—」（之前要等 15s 定时器首次触发） |
+| 文档 | PRD/CHANGELOG | PRD §2.3 VI 小节追加毛玻璃设计规则；CHANGELOG 升 v1.6.3 |
+
+### 背景光斑设计
+- 4 个 `.bg-blob` 装饰元素（fixed 定位 + blur 90px）：
+  - `#6FE0E1→#23BABB` 青绿光斑（左上 480×480，26s 浮动）
+  - `#D9E96B→#C1D52D` 黄绿光斑（右下 420×420，32s 浮动）
+  - 中央青绿小光斑 + 右上黄绿小光斑（错开节奏 38s/44s）
+- 这些是毛玻璃「视觉底」——有光斑 + 半透明 + blur 才能看出玻璃感
+
+### 切换动画
+- 0.34s `cubic-bezier(0.22, 1, 0.36, 1)`（标准 Material iOS 风格）
+- 同时启动 opacity / translateY / scale / filter 四个属性
+- 强制 `offsetWidth` reflow 保证每次重新触发
+- 防止残留：切换前清掉所有 `.page` 的 `.page-enter` class
+
+**截图验证**：4 个页面（总览 / 钣金）毛玻璃效果均生效，光斑透出，侧栏深色毛玻璃 + 菜单 active 渐变高亮 + 卡片悬浮阴影都正常。提交 `7b14bdb` 已推 main，Render 自动重部署。
+
+---
+
 ## v1.6.2 · 2026-08-19 · 同步 API 迁移至新版 wecom-cli sheet（修复 rc=2 接口不存在）
 
 | 提交 | 类型 | 说明 |
