@@ -2,10 +2,10 @@
 """钣金欠料（箱体进度统计）同步模块。
 
 数据来源：金山文档「箱体进度统计.xls」（kdocs file_id=HeqbtFcx3rMqYYFRpA9n1xZrPzbTeaL4X）。
-两个明细分表：
-  - 5A-巨茂箱体进度8.17 (worksheet_id=8)  —— 11 列
+两个明细分表（目前仍为两个分表，但业务上均按「项目名称」区分，巨茂只是其中一个项目）：
+  - 5A-巨茂箱体进度8.17 (worksheet_id=8)  —— 13 列，含特有的「发货批次」（壹月发货批次列）
   - 箱体进度统计（非巨茂）(worksheet_id=10) —— 12 列
-统一映射到 db.SHEETMETAL_FIELDS。
+统一映射到 db.SHEETMETAL_FIELDS。批次(batch) 仅巨茂分表有，且取发货批次表头。
 
 自动同步：通过本地 kdocs-cli 拉取（需先执行 `kdocs-cli auth login`）。
 一键初始化：用连接器已拉取的数据跑 tools/bootstrap_sheetmetal.py（见仓库说明）。
@@ -31,11 +31,15 @@ DETAIL_SHEETS = [
 ]
 
 # 列布局（0-based 索引）
-# 巨茂：序号/图纸批次/图纸时间/项目名称/供应商/設備類別/品名/规格型号图纸编号/数量/到货情况/预计到货时间/实际到货时间/壹月发货批次
+# 巨茂：序号(0)/图纸批次(1,→drawing_batch)/图纸时间(2)/项目名称(3)/供应商(4)/
+#       設備類別(5)/品名(6)/规格型号图纸编号(7)/数量(8)/到货情况(9)/
+#       预计到货时间(10)/实际到货时间(11)/壹月发货批次(12,→batch 即发货批次)
+# 说明：批次(batch) 仅巨茂分表有，且按用户口径取「发货批次」表头（壹月发货批次列）。
+#       「图纸批次」作为单独的 drawing_batch 保留。
 JUMAO_COLS = {
-    "batch": 1, "drawing_date": 2, "project": 3, "supplier": 4,
+    "drawing_batch": 1, "drawing_date": 2, "project": 3, "supplier": 4,
     "category": 5, "name": 6, "material_code": 7, "qty": 8,
-    "arrival": 9, "eta": 10, "arrival_date": 11, "note": 12,
+    "arrival": 9, "eta": 10, "arrival_date": 11, "batch": 12,
 }
 # 非巨茂：序号/图纸时间/项目名称/供应商/采购订单号/物料编码/品名/规格型号/数量/到货情况/预计到货时间/实际到货时间
 FEIJUMA_COLS = {
@@ -73,11 +77,10 @@ def normalize_jumao(rows):
     """rows: 含表头的 2D 网格（list of list）。返回统一字段记录列表。"""
     recs = []
     for r in rows[1:]:
-        batch = _cell(r, JUMAO_COLS["batch"])
-        if batch == "合计":
-            continue  # 跳过合计/汇总脚注行
         name = _cell(r, JUMAO_COLS["name"])
         material = _cell(r, JUMAO_COLS["material_code"])
+        if name == "合计" or material == "合计":
+            continue  # 跳过合计/汇总脚注行
         qty = _cell(r, JUMAO_COLS["qty"])
         if _safe_int(qty) is None:
             continue  # 数量非数字（合计/标签行）跳过
@@ -85,7 +88,7 @@ def normalize_jumao(rows):
             continue
         recs.append({
             "sheet": "5A-巨茂箱体进度8.17",
-            "batch": batch,
+            "batch": _cell(r, JUMAO_COLS["batch"]),          # 壹月发货批次（发货批次）
             "drawing_date": _cell(r, JUMAO_COLS["drawing_date"]),
             "delivery_date": "",
             "project": _cell(r, JUMAO_COLS["project"]),
@@ -99,7 +102,8 @@ def normalize_jumao(rows):
             "arrival": _cell(r, JUMAO_COLS["arrival"]),
             "eta": _cell(r, JUMAO_COLS["eta"]),
             "arrival_date": _cell(r, JUMAO_COLS["arrival_date"]),
-            "note": _cell(r, JUMAO_COLS["note"]),
+            "drawing_batch": _cell(r, JUMAO_COLS["drawing_batch"]),  # 图纸批次
+            "note": "",
         })
     return recs
 

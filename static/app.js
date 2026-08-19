@@ -198,9 +198,8 @@ function renderSheetmetalOverview(d) {
     <div class="card"><div class="num">${d.total_qty}</div><div class="lbl">合计数量</div></div>
     <div class="card"><div class="num" style="color:#b91c1c">${d.shortage}</div><div class="lbl">欠料条数</div></div>
     <div class="card"><div class="num" style="color:#b91c1c">${d.shortage_qty}</div><div class="lbl">欠料数量</div></div>
-    <div class="card"><div class="num" style="color:#15803d">${d.arrived}</div><div class="lbl">已到货</div></div>
-    <div class="card"><div class="num">${d.sheets}</div><div class="lbl">分表数</div></div>`;
-  $('sm-by-sheet').innerHTML = smBarRows(d.by_sheet, 'sheet');
+    <div class="card"><div class="num" style="color:#15803d">${d.arrived}</div><div class="lbl">已到货</div></div>`;
+  $('sm-by-project').innerHTML = smBarRows(d.by_project, 'project');
   $('sm-by-category').innerHTML = smBarRows(d.by_category, 'category');
   $('sm-by-supplier').innerHTML = smBarRows(d.by_supplier, 'supplier');
   $('sm-by-batch').innerHTML = smBarRows(d.by_batch, 'batch');
@@ -232,13 +231,13 @@ function loadSheetmetalDetail() {
 }
 
 const SM_COLS = [
-  { key: 'sheet', label: '来源表' }, { key: 'batch', label: '批次' },
-  { key: 'project', label: '项目' }, { key: 'category', label: '设备类别' },
-  { key: 'supplier', label: '供应商' }, { key: 'po_no', label: '采购单' },
-  { key: 'material_code', label: '物料编码' }, { key: 'name', label: '名称' },
-  { key: 'spec', label: '规格' }, { key: 'qty', label: '数量' },
-  { key: 'arrival', label: '到货情况', badge: true }, { key: 'eta', label: '预计到货' },
-  { key: 'arrival_date', label: '实际到货' }, { key: 'note', label: '备注' },
+  { key: 'sheet', label: '来源表' }, { key: 'batch', label: '发货批次' },
+  { key: 'drawing_batch', label: '图纸批次' }, { key: 'project', label: '项目' },
+  { key: 'category', label: '设备类别' }, { key: 'supplier', label: '供应商' },
+  { key: 'po_no', label: '采购单' }, { key: 'material_code', label: '物料编码' },
+  { key: 'name', label: '名称' }, { key: 'spec', label: '规格' },
+  { key: 'qty', label: '数量' }, { key: 'arrival', label: '到货情况', badge: true },
+  { key: 'eta', label: '预计到货' }, { key: 'arrival_date', label: '实际到货' },
 ];
 
 function renderSheetmetalTable(items) {

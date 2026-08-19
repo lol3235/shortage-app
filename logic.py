@@ -278,14 +278,20 @@ def sheetmetal_active(items):
 
 
 def sheetmetal_overview(items):
-    """钣金欠料总览：总量 / 已到货 / 欠料 / 分表与维度分布。"""
+    """钣金欠料总览：总量 / 已到货 / 欠料 / 项目与维度分布。
+
+    分布口径（按用户 2026-08-19 要求）：
+    - 不再按「分表」单独统计；项目维度用 项目名称(project) 区分（巨茂只是其中一个项目）。
+    - 供应商分布按整表聚合（跨所有项目）。
+    - 批次(batch) 仅巨茂有，取发货批次表头。
+    """
     if not items:
         return {"total": 0, "total_qty": 0, "arrived": 0, "shortage": 0,
-                "shortage_qty": 0, "sheets": 0, "by_sheet": {},
+                "shortage_qty": 0, "by_project": [],
                 "by_category": [], "by_supplier": [], "by_batch": []}
     arrived = [i for i in items if sheetmetal_is_arrived(i)]
     shortage = [i for i in items if not sheetmetal_is_arrived(i)]
-    by_sheet = Counter(i.get("sheet") or "未知" for i in items)
+    by_proj = Counter(i.get("project") or "未填项目" for i in items)
     by_cat = Counter(i.get("category") for i in items if i.get("category"))
     by_sup = Counter(i.get("supplier") for i in items if i.get("supplier"))
     by_batch = Counter(i.get("batch") for i in items
@@ -296,8 +302,7 @@ def sheetmetal_overview(items):
         "arrived": len(arrived),
         "shortage": len(shortage),
         "shortage_qty": sum(int(i.get("qty") or 0) for i in shortage),
-        "sheets": len(by_sheet),
-        "by_sheet": dict(by_sheet),
+        "by_project": [{"project": k, "count": v} for k, v in by_proj.most_common()],
         "by_category": [{"category": k, "count": v} for k, v in by_cat.most_common()],
         "by_supplier": [{"supplier": k, "count": v} for k, v in by_sup.most_common()],
         "by_batch": [{"batch": k, "count": v} for k, v in by_batch.most_common()],
@@ -308,7 +313,7 @@ def sheetmetal_search(items, kw):
     """钣金欠料查询：跨全部字段模糊匹配；kw 为空返回全部。附 arrived 标记。"""
     kw = (kw or "").strip().lower()
     if kw:
-        fields = ["sheet", "batch", "drawing_date", "delivery_date", "project",
+        fields = ["sheet", "batch", "drawing_batch", "drawing_date", "delivery_date", "project",
                   "category", "supplier", "po_no", "material_code", "name",
                   "spec", "arrival", "eta", "arrival_date", "note"]
         rows = [i for i in items if any(kw in str(i.get(f, "")).lower() for f in fields)]

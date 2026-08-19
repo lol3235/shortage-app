@@ -192,6 +192,7 @@ CREATE TABLE IF NOT EXISTS sheetmetal_items (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     sheet         TEXT,
     batch         TEXT,
+    drawing_batch TEXT,
     drawing_date  TEXT,
     delivery_date TEXT,
     project       TEXT,
@@ -215,7 +216,7 @@ CREATE TABLE IF NOT EXISTS meta_sheetmetal (
 """
 
 SHEETMETAL_FIELDS = [
-    "sheet", "batch", "drawing_date", "delivery_date", "project", "category",
+    "sheet", "batch", "drawing_batch", "drawing_date", "delivery_date", "project", "category",
     "supplier", "po_no", "material_code", "name", "spec", "qty",
     "arrival", "eta", "arrival_date", "note",
 ]
