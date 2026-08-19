@@ -444,6 +444,21 @@ function pollSmSync() {
 $('btn-sm-sync').addEventListener('click', triggerSmSync);
 
 // ---------- 同步 ----------
+// 全局告警横幅：同步失败时在顶栏下方醒目提示，避免数据获取故障被静默掩盖
+function updateAlertBar(d) {
+  const bar = $('alert-bar');
+  if (!bar) return;
+  if (d.error) {
+    bar.className = 'alert-bar show';
+    bar.innerHTML = `<strong>⚠️ 数据同步失败，看板数据可能已过期</strong><span>${esc(d.error)}</span><button onclick="triggerSync()">立即重试</button>`;
+  } else if (d.syncing) {
+    bar.className = 'alert-bar show syncing';
+    bar.innerHTML = `<strong>🔄 正在同步数据…</strong>`;
+  } else {
+    bar.className = 'alert-bar';
+    bar.innerHTML = '';
+  }
+}
 function refreshSyncInfo() {
   API('/api/sync_status').then(d => {
     const t = d.last_sync || '未同步';
@@ -451,6 +466,7 @@ function refreshSyncInfo() {
     if ($('page-sync') && !$('page-sync').classList.contains('hidden')) {
       $('sync-progress').textContent = d.syncing ? '同步中…' : (d.error ? '同步失败：' + d.error : '就绪');
     }
+    updateAlertBar(d);
   });
 }
 function triggerSync() {
@@ -464,6 +480,7 @@ function pollSync() {
     API('/api/sync_status').then(d => {
       $('sync-info').textContent = '上次同步：' + (d.last_sync || '未同步') + (d.last_count ? `（${d.last_count} 条）` : '');
       $('sync-progress').textContent = d.syncing ? '同步中…' : (d.error ? '同步失败：' + d.error : '同步完成 ✓');
+      updateAlertBar(d);
       if (!d.syncing) {
         clearInterval(timer);
         if (!d.error && $('page-overview') && !$('page-overview').classList.contains('hidden')) loadOverview();
@@ -518,6 +535,7 @@ setInterval(() => {
     if ($('page-sync') && !$('page-sync').classList.contains('hidden')) {
       $('sync-progress').textContent = d.syncing ? '同步中…' : (d.error ? '同步失败：' + d.error : '就绪');
     }
+    updateAlertBar(d);
     // 数据库已更新（且非首次进入）→ 自动重拉当前页，实现界面准实时
     if (d.last_sync && d.last_sync !== lastKnownSync) {
       if (lastKnownSync !== null) refreshCurrent();

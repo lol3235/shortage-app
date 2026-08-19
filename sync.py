@@ -90,14 +90,35 @@ def _run_wecom(args, timeout=60):
     return r
 
 
+def _decode_doc_reply(r, action):
+    """解析 get_doc_content 的 MCP 回复，遇 errcode 抛清晰异常（含授权指引）。
+
+    企微在线表读取失败时（如 851014 授权过期 / 851008 无读取权限），
+    wecom-cli 仍返回 rc=0，但 content.text 里是 errcode/errmsg，而非 task_id。
+    若不在此统一解析，上层会抛隐晦的 KeyError('task_id')，掩盖真实原因。
+    """
+    if r.returncode != 0 or not (r.stdout or "").strip():
+        raise RuntimeError("%s失败: rc=%s err=%s" % (
+            action, r.returncode, (r.stderr or "")[:200]))
+    try:
+        outer = json.loads(r.stdout)
+        inner = json.loads(outer["result"]["content"][0]["text"])
+    except Exception as e:
+        raise RuntimeError("%s失败(响应解析异常): %s | 原始=%s" % (
+            action, e, (r.stdout or "")[:300]))
+    ec = inner.get("errcode")
+    if ec:
+        msg = inner.get("errmsg", "")
+        hm = (inner.get("help_message") or "").replace("\n", " ")
+        raise RuntimeError("%s失败: 企微 errcode=%s errmsg=%s%s" % (
+            action, ec, msg, (" 帮助=%s" % hm) if hm else ""))
+    return inner
+
+
 def _start_task():
     payload = {"url": SHORTAGE_URL, "type": 2}
     r = _run_wecom(["doc", "get_doc_content", "--json", json.dumps(payload)])
-    if r.returncode != 0 or not (r.stdout or "").strip():
-        raise RuntimeError("创建任务失败: rc=%s err=%s" % (
-            r.returncode, (r.stderr or "")[:200]))
-    outer = json.loads(r.stdout)
-    inner = json.loads(outer["result"]["content"][0]["text"])
+    inner = _decode_doc_reply(r, "创建任务")
     return inner["task_id"]
 
 
@@ -119,8 +140,7 @@ def _poll_task(tid, max_empty=10, max_wait=90):
             waited += interval
             continue
         empty_cnt = 0
-        outer = json.loads(r.stdout)
-        inner = json.loads(outer["result"]["content"][0]["text"])
+        inner = _decode_doc_reply(r, "轮询")
         if inner.get("task_done"):
             return inner["content"]
         time.sleep(interval)
