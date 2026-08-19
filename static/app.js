@@ -168,20 +168,106 @@ $('btn-brand').addEventListener('click', () => {
 });
 
 // ---------- 交期对比 ----------
+function formatEtaDate(iso, fallback) {
+  if (!iso) return fallback || '—';
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return iso;
+  return `${parseInt(m[2], 10)}-${parseInt(m[3], 10)}`;
+}
+
+function renderEtaTimeline(entries) {
+  if (!entries || !entries.length) return '';
+  return entries.map(e => {
+    const expDays = e.期望剩余天;
+    const etaDays = e.预计剩余天;
+    const diff = e.相差天;
+    const hasBoth = expDays !== null && etaDays !== null;
+
+    // 时间轴范围：以今天为锚点，覆盖期望/预计到货到货日
+    const days = [0];
+    if (expDays !== null) days.push(expDays);
+    if (etaDays !== null) days.push(etaDays);
+    const minDay = Math.min(...days) - 3;
+    const maxDay = Math.max(...days) + 8;
+    const range = (maxDay - minDay) || 1;
+    const pct = d => Math.max(0, Math.min(100, (d - minDay) / range * 100));
+
+    const todayPct = pct(0);
+    const expPct = expDays !== null ? pct(expDays) : null;
+    const etaPct = etaDays !== null ? pct(etaDays) : null;
+
+    let gapHtml = '';
+    if (hasBoth && expPct !== null && etaPct !== null) {
+      const left = Math.min(expPct, etaPct);
+      const width = Math.abs(etaPct - expPct);
+      const cls = diff > 0 ? 'late' : (diff < 0 ? 'early' : 'ok');
+      gapHtml = `<div class="eta-gap ${cls}" style="left:${left}%;width:${width}%"></div>`;
+    }
+
+    let statusHtml;
+    if (diff === null) statusHtml = `<span class="tag muted">${esc(e.判定)}</span>`;
+    else if (diff > 0) statusHtml = `<span class="tag warn">逾期 ${diff} 天</span>`;
+    else if (diff < 0) statusHtml = `<span class="tag ok">提前 ${Math.abs(diff)} 天</span>`;
+    else statusHtml = `<span class="tag ok">刚好</span>`;
+
+    return `<div class="eta-entry">
+      <div class="eta-entry-meta">
+        <span class="eta-project" title="${esc(e.项目)}">${esc(e.项目 || '未命名')}</span>
+        <span class="exp">需求：${esc(formatEtaDate(e.期望日期, e.期望))} <small>${expDays != null ? (expDays >= 0 ? `(剩余 ${expDays} 天)` : `(已逾期 ${Math.abs(expDays)} 天)`) : ''}</small></span>
+        <span class="act">实际：${esc(formatEtaDate(e.预计日期, e.预计))} <small>${etaDays != null ? (etaDays >= 0 ? `(剩余 ${etaDays} 天)` : `(已逾期 ${Math.abs(etaDays)} 天)`) : ''}</small></span>
+        ${statusHtml}
+      </div>
+      <div class="eta-track" title="灰色竖线=今天，橙色=需求交期，蓝色=实际预计到货">
+        ${gapHtml}
+        <div class="eta-today" style="left:${todayPct}%"></div>
+        ${expPct !== null ? `<div class="eta-marker expected" style="left:${expPct}%"></div>` : ''}
+        ${etaPct !== null ? `<div class="eta-marker actual" style="left:${etaPct}%"></div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderEtaCards(groups) {
+  if (!groups || !groups.length) return '<p class="muted">无数据</p>';
+  return `<div class="eta-legend">
+    <span><i class="dot" style="background:#f59e0b"></i>需求交期</span>
+    <span><i class="dot" style="background:#2563eb"></i>实际预计到货</span>
+    <span><i class="dot" style="background:#6b7280"></i>今天</span>
+    <span><i class="dot" style="background:#fca5a5"></i>逾期缺口</span>
+    <span><i class="dot" style="background:#86efac"></i>提前余量</span>
+  </div>
+  <div class="eta-cards">
+    ${groups.map(g => {
+      const projects = g.projects.slice(0, 3).join(' / ') + (g.projects.length > 3 ? ` 等${g.projects.length}个项目` : '');
+      const badge = g.late ? `<span class="tag warn">${g.late} 项逾期</span>`
+        : (g.on_time ? `<span class="tag ok">${g.on_time} 项来得及</span>`
+        : `<span class="tag muted">${g.no_date} 项缺交期</span>`);
+      return `<div class="eta-card">
+        <div class="eta-card-header">
+          <div>
+            <div class="eta-mc">${esc(g.mc)}</div>
+            <div class="eta-name">${esc(g.name || '—')}</div>
+            <div class="eta-projects">${esc(projects || '—')}</div>
+          </div>
+          <div>${badge}</div>
+        </div>
+        ${renderEtaTimeline(g.entries)}
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
 $('btn-eta').addEventListener('click', () => {
   const kw = $('eta-kw').value.trim();
   API('/api/eta', { kw }).then(d => {
     if (d.error) { $('eta-result').innerHTML = `<p class="error">${esc(d.error)}</p>`; return; }
-    let h = `<p>共 <b>${d.rows}</b> 条，其中 <b style="color:#b91c1c">${d.late}</b> 条存在交期风险</p>`;
-    h += rowsTable(d.results.map(r => ({
-      项目: r.项目, 物料编码: r.物料编码, 物料名称: r.物料名称,
-      预计: r.预计, 期望: r.期望,
-      判定: r.判定 === '来不及' ? `<span class="tag warn">⚠️ 来不及${r.相差天!=null?'('+r.相差天+'天)':''}</span>`
-            : (r.判定 === '来得及' ? `<span class="tag ok">✅ 来得及</span>` : `<span class="tag muted">${esc(r.判定)}</span>`),
-    })), [
-      { key: '项目', label: '项目' }, { key: '物料编码', label: '物料编码' }, { key: '物料名称', label: '物料名称' },
-      { key: '预计', label: '预计交期' }, { key: '期望', label: '期望交期' }, { key: '判定', label: '判定' },
-    ]);
+    let h = `<div class="cards" style="margin-bottom:14px">
+      <div class="card"><div class="num">${d.rows}</div><div class="lbl">匹配条数</div></div>
+      <div class="card"><div class="num" style="color:#b91c1c">${d.late}</div><div class="lbl">逾期风险</div></div>
+      <div class="card"><div class="num" style="color:#15803d">${d.on_time}</div><div class="lbl">来得及</div></div>
+      <div class="card"><div class="num">${d.no_date}</div><div class="lbl">缺交期信息</div></div>
+    </div>`;
+    h += renderEtaCards(d.by_material);
     $('eta-result').innerHTML = h;
   });
 });

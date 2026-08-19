@@ -73,3 +73,28 @@ tr:nth-child(even) td { background: #fafbfc; }
 pre#sync-log { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; font-size: 12px; max-height: 220px; overflow-y: auto; }
 .error { color: #b91c1c; }
 .muted { color: #6b7280; font-size: 13px; }
+
+/* 交期对比可视化：按物料编码聚合 */
+.eta-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: #6b7280; margin-bottom: 12px; }
+.eta-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.eta-cards { display: flex; flex-direction: column; gap: 12px; }
+.eta-card { background: #fff; border-radius: 10px; padding: 14px 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.eta-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
+.eta-mc { font-weight: 700; font-size: 15px; color: #1e2937; word-break: break-all; }
+.eta-name { color: #4b5563; font-size: 13px; margin-top: 2px; }
+.eta-projects { font-size: 12px; color: #2563eb; margin-top: 4px; }
+.eta-entry { margin: 10px 0 0; padding-top: 10px; border-top: 1px dashed #e5e7eb; }
+.eta-entry:first-child { border-top: none; padding-top: 0; }
+.eta-entry-meta { display: flex; align-items: center; gap: 14px; font-size: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+.eta-entry-meta small { color: #9ca3af; margin-left: 2px; }
+.eta-project { font-weight: 600; color: #374151; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eta-track { height: 10px; background: #eef2f7; border-radius: 5px; position: relative; margin: 4px 0; }
+.eta-today { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #6b7280; z-index: 3; }
+.eta-marker { position: absolute; top: -4px; width: 8px; height: 18px; border-radius: 2px; z-index: 4; }
+.eta-marker.expected { background: #f59e0b; }
+.eta-marker.actual { background: #2563eb; }
+.eta-gap { position: absolute; top: 2px; height: 6px; border-radius: 3px; z-index: 2; }
+.eta-gap.late { background: #fca5a5; }
+.eta-gap.early { background: #86efac; }
+.eta-gap.ok { width: 0 !important; }

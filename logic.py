@@ -229,38 +229,78 @@ def eta_check(items, kw):
     if not rows:
         return {"error": "未找到「%s」相关的欠料，无法判定交期" % kw}
 
+    today = datetime.date.today()
+
     def _verdict(eta, exp):
         pe = _parse_date(eta)
         xe = _parse_date(exp)
         if not pe and not xe:
-            return "无交期信息", None
+            return "无交期信息", None, None, None
         if pe and not xe:
-            return "缺期望交期", None
+            return "缺期望交期", None, datetime.date(*pe), None
         if not pe and xe:
-            return "无预计到货时间", None
+            return "无预计到货时间", None, None, datetime.date(*xe)
         d_pe = datetime.date(*pe)
         d_xe = datetime.date(*xe)
         diff = (d_pe - d_xe).days
         if diff <= 0:
-            return "来得及", diff
-        return "来不及", diff
+            return "来得及", diff, d_pe, d_xe
+        return "来不及", diff, d_pe, d_xe
 
     results = []
-    late = 0
+    late = on_time = no_date = 0
     for i in rows:
-        verdict, diff = _verdict(i.get("预计到货时间"), i.get("期望交期"))
+        verdict, diff, d_pe, d_xe = _verdict(i.get("预计到货时间"), i.get("期望交期"))
         if verdict == "来不及":
             late += 1
+        elif verdict == "来得及":
+            on_time += 1
+        else:
+            no_date += 1
         results.append({
             "项目": i.get("项目", ""),
             "物料编码": i.get("物料编码", ""),
             "物料名称": i.get("物料名称", ""),
             "预计": i.get("预计到货时间") or "—",
             "期望": i.get("期望交期") or "—",
-            "判定": verdict,
+            "预计日期": d_pe.isoformat() if d_pe else None,
+            "期望日期": d_xe.isoformat() if d_xe else None,
+            "预计剩余天": (d_pe - today).days if d_pe else None,
+            "期望剩余天": (d_xe - today).days if d_xe else None,
             "相差天": diff,
+            "判定": verdict,
         })
-    return {"keyword": kw, "rows": len(rows), "late": late, "results": results[:30]}
+
+    # 按物料编码聚合，方便前端做卡片式交期对比
+    by_material = defaultdict(lambda: {"name": "", "entries": [], "late": 0, "on_time": 0, "no_date": 0, "projects": set()})
+    for r in results:
+        mc = r["物料编码"]
+        by_material[mc]["name"] = r["物料名称"] or by_material[mc]["name"]
+        by_material[mc]["entries"].append(r)
+        by_material[mc]["projects"].add(r["项目"] or "未命名")
+        if r["判定"] == "来不及":
+            by_material[mc]["late"] += 1
+        elif r["判定"] == "来得及":
+            by_material[mc]["on_time"] += 1
+        else:
+            by_material[mc]["no_date"] += 1
+
+    by_material_list = sorted(
+        [{"mc": mc, "name": info["name"], "entries": info["entries"],
+          "late": info["late"], "on_time": info["on_time"], "no_date": info["no_date"],
+          "projects": sorted(info["projects"])}
+         for mc, info in by_material.items()],
+        key=lambda x: (-x["late"], -len(x["entries"]), x["mc"]))[:30]
+
+    return {
+        "keyword": kw,
+        "rows": len(rows),
+        "late": late,
+        "on_time": on_time,
+        "no_date": no_date,
+        "results": results[:30],
+        "by_material": by_material_list,
+    }
 
 
 # ---------------- 钣金欠料（箱体进度统计）----------------
