@@ -16,6 +16,8 @@ import os
 import sys
 import subprocess
 import time
+import csv
+import io
 from collections import Counter, defaultdict
 
 import db
@@ -62,8 +64,10 @@ COL_ALIASES = {
     "预计到货时间": ["预计到货时间", "材料预计到货时间"],
     # 期望交期：需求方在「期望到货时间」写的，单独存，仅用于「来不来得及」对比
     "期望交期": ["期望到货时间", "期望交期"],
-    # 状态列：用于标记 已解决/归档 等，机器人据此过滤（应对隐藏行/分表）
-    "状态": ["状态", "处理状态", "进度", "是否解决", "备注"],
+    # 状态列：用于标记 已解决/归档 等，机器人据此过滤（应对隐藏行/分表）。
+    # 严格限定 4 个标准名，避免误匹配「备注/采购方/采购者/库存量」等业务列。
+    # 历史教训：把「备注」当 状态 会把"供应商现货待付款"等备注文字误判为 状态。
+    "状态": ["状态", "处理状态", "进度", "是否解决", "解决状态"],
 }
 
 # 在线表中常被纵向合并单元格的列；解析时空值按项目/单据做前向填充
@@ -90,76 +94,184 @@ def _run_wecom(args, timeout=60):
     return r
 
 
-def _decode_doc_reply(r, action):
-    """解析 get_doc_content 的 MCP 回复，遇 errcode 抛清晰异常（含授权指引）。
-
-    企微在线表读取失败时（如 851014 授权过期 / 851008 无读取权限），
-    wecom-cli 仍返回 rc=0，但 content.text 里是 errcode/errmsg，而非 task_id。
-    若不在此统一解析，上层会抛隐晦的 KeyError('task_id')，掩盖真实原因。
-    """
+def _list_sheets(timeout=90):
+    """列出欠料表所有子表 (sheet_id, title, row_count, column_count)。"""
+    r = _run_wecom(["sheet", "get", "--docid", SHORTAGE_URL], timeout=timeout)
     if r.returncode != 0 or not (r.stdout or "").strip():
-        raise RuntimeError("%s失败: rc=%s err=%s" % (
-            action, r.returncode, (r.stderr or "")[:200]))
+        raise RuntimeError("获取子表列表失败: rc=%s err=%s" % (
+            r.returncode, (r.stderr or "")[:200]))
     try:
-        outer = json.loads(r.stdout)
-        inner = json.loads(outer["result"]["content"][0]["text"])
+        data = json.loads(r.stdout)
     except Exception as e:
-        raise RuntimeError("%s失败(响应解析异常): %s | 原始=%s" % (
-            action, e, (r.stdout or "")[:300]))
-    ec = inner.get("errcode")
-    if ec:
-        msg = inner.get("errmsg", "")
-        hm = (inner.get("help_message") or "").replace("\n", " ")
-        raise RuntimeError("%s失败: 企微 errcode=%s errmsg=%s%s" % (
-            action, ec, msg, (" 帮助=%s" % hm) if hm else ""))
-    return inner
+        raise RuntimeError("子表列表响应解析异常: %s | 原始=%s" % (
+            e, (r.stdout or "")[:300]))
+    if data.get("errcode", 0) != 0:
+        raise RuntimeError("子表列表接口错误: errcode=%s errmsg=%s" % (
+            data.get("errcode"), data.get("errmsg")))
+    sheets = data.get("sheets") or []
+    if not sheets:
+        raise RuntimeError("欠料表无子表可读（sheets 为空）")
+    return sheets
 
 
-def _start_task():
-    payload = {"url": SHORTAGE_URL, "type": 2}
-    r = _run_wecom(["doc", "get_doc_content", "--json", json.dumps(payload)])
-    inner = _decode_doc_reply(r, "创建任务")
-    return inner["task_id"]
+def _fetch_sheet_csv(sheet_id, timeout=120, retry=3):
+    """读取单个子表全部数据（CSV 格式，同步接口，无 task_id 轮询）。
+
+    单子表读取会按 retry 次重试（每次重试间隔递增 2s/4s/8s），应对偶发的频率限制。
+    """
+    last_err = None
+    for attempt in range(1, retry + 1):
+        r = _run_wecom(["sheet", "ranges", "get", "--docid", SHORTAGE_URL,
+                        "--sheet-id", sheet_id, "--mode", "csv"], timeout=timeout)
+        if r.returncode == 0 and (r.stdout or "").strip():
+            try:
+                data = json.loads(r.stdout)
+            except Exception as e:
+                last_err = RuntimeError("子表 %s 响应解析异常: %s | 原始=%s" % (
+                    sheet_id, e, (r.stdout or "")[:300]))
+                time.sleep(2 * attempt)
+                continue
+            if data.get("errcode", 0) == 0:
+                return data.get("content", "")
+            last_err = RuntimeError("子表 %s 错误: errcode=%s errmsg=%s" % (
+                sheet_id, data.get("errcode"), data.get("errmsg")))
+        else:
+            last_err = RuntimeError("子表 %s 失败: rc=%s err=%s" % (
+                sheet_id, r.returncode, (r.stderr or "")[:200]))
+        if attempt < retry:
+            wait = 2 * (2 ** (attempt - 1))  # 2s, 4s, 8s
+            print("[sync] 子表 %s 失败(第%d次)，%ds 后重试: %s" % (
+                sheet_id, attempt, wait, last_err))
+            time.sleep(wait)
+    raise last_err
 
 
-def _poll_task(tid, max_empty=10, max_wait=90):
-    empty_cnt = 0
-    waited = 0
-    interval = 2
-    while waited < max_wait:
-        r = _run_wecom(["doc", "get_doc_content", "--json",
-                       json.dumps({"url": SHORTAGE_URL, "type": 2, "task_id": tid})])
-        if r.returncode != 0:
-            raise RuntimeError("轮询失败: rc=%s err=%s" % (
-                r.returncode, (r.stderr or "")[:200]))
-        if not (r.stdout or "").strip():
-            empty_cnt += 1
-            if empty_cnt > max_empty:
-                raise RuntimeError("轮询空输出超过%d次" % max_empty)
-            time.sleep(interval)
-            waited += interval
-            continue
-        empty_cnt = 0
-        inner = _decode_doc_reply(r, "轮询")
-        if inner.get("task_done"):
-            return inner["content"]
-        time.sleep(interval)
-        waited += interval
-    raise RuntimeError("拉取欠料表轮询超时")
+def _csv_to_markdown(sheet_title, csv_text):
+    """将单子表 CSV 转成 markdown 表格，复用 parse_markdown 的解析逻辑。
+
+    输入：子表标题 + wecom-cli sheet ranges get --mode csv 返回的 content 字段。
+    输出：markdown 字符串（首行为子表标题，后续为表格）。
+
+    CSV 解析用 Python 标准 csv 模块，支持：
+    - 双引号包裹的字段（含逗号、换行、引号）
+    - 双引号转义（"" 表示一个 "）
+    """
+    if not csv_text.strip():
+        return ""
+    # wecom-cli 返回的 CSV 已经是 RFC 4180 标准格式，csv 模块可正确解析
+    reader = csv.reader(io.StringIO(csv_text))
+    rows = [r for r in reader if r]  # 过滤空行
+
+    if not rows:
+        return ""
+
+    # 找列头行：含 "物料编码" 且含 欠料数量 候选
+    header_idx = -1
+    for i, r in enumerate(rows):
+        joined = "|".join(r)
+        if "物料编码" in joined and any(alias in joined for alias in COL_ALIASES["欠料数量"]):
+            header_idx = i
+            break
+    if header_idx < 0:
+        # 找不到表头行（极少见：子表全空或格式特殊），整块跳过
+        return ""
+
+    header = rows[header_idx]
+    # 真实列数 = 表头中非空 cell 数。处理 0810 类「表头后段全空」sheet：
+    # 它的 CSV 每行 24 cell 但只有 14 列是有效列；剩余 10 列常被错误填充为下行走漏。
+    ncols = sum(1 for h in header if h.strip())
+    if ncols < len(header):
+        # 把表头后段空 cell 替换为明确的空字符串（保持索引）
+        header = [h if h.strip() else "" for h in header]
+    # 规范化：先检测走漏再截断，避免误丢下行走漏数据
+    norm_rows = []
+    for r in rows[header_idx + 1:]:
+        # 检测「下行走漏」：状态/处理状态列出现 9 位项目编码（260xxxxxx），
+        # 说明这是下一行的项目编码漏到本行。把当前状态列清空，
+        # 后续 cell 整体左移 1 位作为新行追加。
+        status_col = -1
+        for j, h in enumerate(header[:ncols]):
+            if h in ("处理状态", "状态", "进度", "是否解决", "解决状态"):
+                status_col = j
+                break
+        if 0 <= status_col < len(r) and re.match(r"^2\d{8}$", r[status_col].strip()):
+            tail = r[status_col + 1:]
+            if any(c.strip() for c in tail):
+                # 当前行：状态列清空
+                fixed = r[:status_col] + [""] + r[status_col + 1:]
+                norm_rows.append(fixed[:ncols] if len(fixed) >= ncols else fixed + [""] * (ncols - len(fixed)))
+                # 下一行：tail 是不完整的下一行（缺前 status_col 个 cell）
+                # 直接作为新行追加，parse_markdown 会按物料编码位置自动左对齐补空
+                next_row = tail
+                if len(next_row) < ncols:
+                    next_row = next_row + [""] * (ncols - len(next_row))
+                norm_rows.append(next_row[:ncols])
+                continue
+        # 常规：截断到 ncols
+        r = r[:ncols]
+        if len(r) < ncols:
+            r = r + [""] * (ncols - len(r))
+        norm_rows.append(r)
+
+    lines = [sheet_title]
+    # 用安全的转义：把 markdown 表格中的 | 转义为 \|，避免字段值里的 | 破坏表格结构
+    def _esc(v):
+        return str(v).replace("|", "\\|").replace("\n", " ")
+    lines.append("| " + " | ".join(_esc(c) for c in header) + " |")
+    lines.append("|" + "|".join(["---"] * ncols) + "|")
+    for r in norm_rows:
+        lines.append("| " + " | ".join(_esc(c) for c in r) + " |")
+    return "\n".join(lines)
 
 
-def fetch_markdown(max_retry=3):
-    last = None
+def fetch_markdown(max_retry=2, inter_sheet_delay=1.5):
+    """新版：用 wecom-cli sheet API 拉取所有子表，CSV → markdown → parse_markdown。
+
+    失败时整体重试 max_retry 次（任一子表读取失败都触发整次重试）。
+    子表之间默认停顿 1.5s，避免触发企微的瞬时频率限制。
+    单子表读取失败会内部重试 3 次，3 次都失败才跳过该子表继续。
+    返回 markdown 字符串，与旧版同接口兼容，parse_markdown 不用改。
+    """
+    last_err = None
     for attempt in range(1, max_retry + 1):
         try:
-            tid = _start_task()
-            return _poll_task(tid)
+            sheets = _list_sheets()
+            md_chunks = []
+            ok_sids = []
+            failed_sids = []
+            for idx, s in enumerate(sheets):
+                sid = s.get("sheet_id")
+                title = s.get("title") or sid or "未命名子表"
+                if not sid:
+                    print("[sync] 跳过无 sheet_id 的子表: %s" % s)
+                    continue
+                try:
+                    csv = _fetch_sheet_csv(sid)
+                except Exception as e:
+                    # 单个子表失败不阻断整体，仅记录并跳过（保证最差也有 90% 数据）
+                    print("[sync] 子表 %s(%s) 跳过: %s" % (title, sid, e))
+                    failed_sids.append(sid)
+                    continue
+                md = _csv_to_markdown(title, csv)
+                if md:
+                    md_chunks.append(md)
+                    ok_sids.append(sid)
+                # 最后一个子表不 sleep（避免无意义等待）
+                if inter_sheet_delay > 0 and idx < len(sheets) - 1:
+                    time.sleep(inter_sheet_delay)
+            if not md_chunks:
+                raise RuntimeError("所有子表都为空/失败，无法解析（失败子表: %s）" % failed_sids)
+            if failed_sids:
+                print("[sync] 警告：%d 个子表读取失败被跳过: %s" % (len(failed_sids), failed_sids))
+            print("[sync] 成功拉取 %d/%d 个子表" % (len(ok_sids), len(sheets)))
+            return "\n\n".join(md_chunks)
         except Exception as e:
-            last = e
+            last_err = e
+            print("[sync] 拉取失败(第%d次): %s" % (attempt, e))
             if attempt < max_retry:
-                time.sleep(2)
+                time.sleep(5)
                 continue
-    raise RuntimeError("拉取欠料表失败(重试%d次): %s" % (max_retry, last))
+    raise RuntimeError("拉取欠料表失败(重试%d次): %s" % (max_retry, last_err))
 
 
 def _classify_eta(eta):
