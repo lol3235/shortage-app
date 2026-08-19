@@ -9,10 +9,10 @@
 
 | 提交 | 类型 | 说明 |
 |---|---|---|
-| `TBD` | feat | `logic.py` 新增 `_parse_eta_days()` 解析 ETA 文本（M.D / M/D / M月D日 / XX天内）为距离今天的天数；`sheetmetal_overview` 的 `by_batch` 每条增加 `arrived`、`shortage`、`remaining_days`，按批次聚合已到货/未到货数量与最短剩余时间 |
-| `TBD` | feat | 前端 `static/app.js` 发货批次分布改专用 `renderSmBatchRows()`：绿色段=已到货、红色段=未到货，右侧文字显示「已到 X / 未到 Y · 剩余/逾期 Z 天」 |
-| `TBD` | ui | `static/style.css` 新增 `.bar-stack`、`.bar-fill-ok`、`.bar-fill-warn`、`.sm-batch-val` 样式 |
-| `TBD` | docs | PRD §3.9 更新发货批次分布说明 |
+| `8646ab7` | feat | `logic.py` 新增 `_parse_eta_days()` 解析 ETA 文本（M.D / M/D / M月D日 / XX天内）为距离今天的天数；`sheetmetal_overview` 的 `by_batch` 每条增加 `arrived`、`shortage`、`remaining_days`，按批次聚合已到货/未到货数量与最短剩余时间 |
+| `8646ab7` | feat | 前端 `static/app.js` 发货批次分布改专用 `renderSmBatchRows()`：绿色段=已到货、红色段=未到货，右侧文字显示「已到 X / 未到 Y · 剩余/逾期 Z 天」 |
+| `8646ab7` | ui | `static/style.css` 新增 `.bar-stack`、`.bar-fill-ok`、`.bar-fill-warn`、`.sm-batch-val` 样式 |
+| `8646ab7` | docs | PRD §3.9 更新发货批次分布说明 |
 
 **本期核心变化**：发货批次分布不再只显示总数，而是直观拆分已到货（绿）/ 未到货（红），并对未到货批次给出剩余需求时间，方便识别哪些批次还赶得上、哪些已经逾期。
 
