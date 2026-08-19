@@ -339,13 +339,14 @@ def sheetmetal_overview(items):
     for b, batch_items in sorted(batch_groups.items(), key=lambda kv: -len(kv[1])):
         arr = [i for i in batch_items if sheetmetal_is_arrived(i)]
         sh = [i for i in batch_items if not sheetmetal_is_arrived(i)]
-        bd = _parse_date(b)
-        if bd:
-            remaining_days = (datetime.date(*bd) - _TODAY()).days
-        elif sh:
-            sh_days = [_parse_eta_days(i.get("eta")) for i in sh]
-            sh_days = [d for d in sh_days if d is not None]
-            remaining_days = min(sh_days) if sh_days else None
+        if sh:
+            bd = _parse_date(b)
+            if bd:
+                remaining_days = (datetime.date(*bd) - _TODAY()).days
+            else:
+                sh_days = [_parse_eta_days(i.get("eta")) for i in sh]
+                sh_days = [d for d in sh_days if d is not None]
+                remaining_days = min(sh_days) if sh_days else None
         else:
             remaining_days = None
         by_batch.append({
