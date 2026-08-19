@@ -18,9 +18,29 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
 // 自动刷新所需的状态：当前所在模块 + 上一次已知同步时间
-let currentPage = 'overview';
+let currentPage = (document.querySelector('#sidebar li.active') || {}).dataset?.page || 'overview';
 let lastKnownSync = null;
 let currentProjectKw = '';
+
+// ---------- 初始化：按 HTML 初始 active 页加载 ----------
+(function initActivePage() {
+  if (currentPage !== 'overview') {
+    const li = document.querySelector('#sidebar li.active');
+    if (li) {
+      $('page-title').textContent = li.textContent;
+      document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+      const target = $('page-' + currentPage);
+      if (target) target.classList.remove('hidden');
+      if (currentPage === 'settings') loadSettings();
+      if (currentPage === 'sync') refreshSyncInfo();
+      if (currentPage === 'sheetmetal') loadSheetmetal();
+      if (currentPage === 'project' && !$('project-kw').value.trim()) $('btn-project').click();
+      if (currentPage === 'material' && !$('material-kw').value.trim()) $('btn-material').click();
+      if (currentPage === 'brand' && !$('brand-kw').value.trim()) $('btn-brand').click();
+      if (currentPage === 'eta' && !$('eta-kw').value.trim()) $('btn-eta').click();
+    }
+  }
+})();
 
 // ---------- 导航切换 ----------
 document.querySelectorAll('#sidebar li').forEach(li => {
@@ -62,14 +82,14 @@ function loadOverview() {
   API('/api/overview').then(d => {
     const wr = d.weekly_rate || {};
     const wrNum = wr.rate != null ? `${wr.rate}%` : (wr.label || '—');
-    const wrColor = wr.rate != null ? (wr.rate >= 80 ? '#15803d' : (wr.rate >= 60 ? '#b45309' : '#b91c1c')) : '#6b7280';
+    const wrColor = wr.rate != null ? (wr.rate >= 80 ? '#16A34A' : (wr.rate >= 60 ? '#F59E0B' : '#DC2626')) : '#6B7280';
     const wrSub = wr.rate != null ? `及时 ${wr.on_time}/${wr.total}` : (wr.label || '本周暂无新增');
     $('cards').innerHTML = `
       <div class="card"><div class="num">${d.total}</div><div class="lbl">欠料条数</div></div>
       <div class="card"><div class="num">${d.total_qty}</div><div class="lbl">合计欠料数量</div></div>
       <div class="card"><div class="num">${d.urgent}</div><div class="lbl">紧急条目(空白/无交期/付款)</div></div>
       <div class="card"><div class="num">${d.sheets}</div><div class="lbl">已同步分表</div></div>
-      <div class="card" title="本周新增材料中状态为已到货/已解决的占比">
+      <div class="card card-accent" title="本周新增材料中状态为已到货/已解决的占比">
         <div class="num" style="color:${wrColor}">${wrNum}</div>
         <div class="lbl">本周新增材料采购及时率</div>
         <div class="lbl" style="font-size:12px;color:#6b7280;margin-top:2px">${wrSub}</div>
@@ -274,11 +294,11 @@ function renderEtaTimeline(entries) {
 function renderEtaCards(groups) {
   if (!groups || !groups.length) return '<p class="muted">无数据</p>';
   return `<div class="eta-legend">
-    <span><i class="dot" style="background:#f59e0b"></i>需求交期</span>
-    <span><i class="dot" style="background:#2563eb"></i>实际预计到货</span>
-    <span><i class="dot" style="background:#6b7280"></i>今天</span>
-    <span><i class="dot" style="background:#fca5a5"></i>逾期缺口</span>
-    <span><i class="dot" style="background:#86efac"></i>提前余量</span>
+    <span><i class="dot" style="background:#F59E0B"></i>需求交期</span>
+    <span><i class="dot" style="background:#23BABB"></i>实际预计到货</span>
+    <span><i class="dot" style="background:#6B7280"></i>今天</span>
+    <span><i class="dot" style="background:#FCA5A5"></i>逾期缺口</span>
+    <span><i class="dot" style="background:#86EFAC"></i>提前余量</span>
   </div>
   <div class="eta-cards">
     ${groups.map(g => {
@@ -311,8 +331,8 @@ $('btn-eta').addEventListener('click', () => {
     }
     h += `<div class="cards" style="margin-bottom:14px">
       <div class="card"><div class="num">${d.rows}</div><div class="lbl">匹配条数</div></div>
-      <div class="card"><div class="num" style="color:#b91c1c">${d.late}</div><div class="lbl">逾期风险</div></div>
-      <div class="card"><div class="num" style="color:#15803d">${d.on_time}</div><div class="lbl">来得及</div></div>
+      <div class="card"><div class="num" style="color:#DC2626">${d.late}</div><div class="lbl">逾期风险</div></div>
+      <div class="card"><div class="num" style="color:#16A34A">${d.on_time}</div><div class="lbl">来得及</div></div>
       <div class="card"><div class="num">${d.no_date}</div><div class="lbl">缺交期信息</div></div>
     </div>`;
     h += renderEtaCards(d.by_material);
@@ -331,9 +351,9 @@ function renderSheetmetalOverview(d) {
   $('sm-cards').innerHTML = `
     <div class="card"><div class="num">${d.total}</div><div class="lbl">条目总数</div></div>
     <div class="card"><div class="num">${d.total_qty}</div><div class="lbl">合计数量</div></div>
-    <div class="card"><div class="num" style="color:#b91c1c">${d.shortage}</div><div class="lbl">欠料条数</div></div>
-    <div class="card"><div class="num" style="color:#b91c1c">${d.shortage_qty}</div><div class="lbl">欠料数量</div></div>
-    <div class="card"><div class="num" style="color:#15803d">${d.arrived}</div><div class="lbl">已到货</div></div>`;
+    <div class="card"><div class="num" style="color:#DC2626">${d.shortage}</div><div class="lbl">欠料条数</div></div>
+    <div class="card"><div class="num" style="color:#DC2626">${d.shortage_qty}</div><div class="lbl">欠料数量</div></div>
+    <div class="card"><div class="num" style="color:#16A34A">${d.arrived}</div><div class="lbl">已到货</div></div>`;
   $('sm-by-project').innerHTML = renderSmSplitRows(d.by_project, 'project');
   $('sm-by-category').innerHTML = smBarRows(d.by_category, 'category');
   $('sm-by-supplier').innerHTML = smBarRows(d.by_supplier, 'supplier');

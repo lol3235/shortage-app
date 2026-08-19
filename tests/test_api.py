@@ -93,7 +93,9 @@ class TestApi(unittest.TestCase):
     def test_index_html(self):
         with urllib.request.urlopen("http://127.0.0.1:%d/" % TEST_PORT, timeout=5) as r:
             body = r.read().decode("utf-8")
-        self.assertIn("<title>欠料看板</title>", body)
+        self.assertIn("欠料看板", body)
+        self.assertIn("壹月科技", body)
+        self.assertIn("/logo.png", body)
 
 
 if __name__ == "__main__":

@@ -3,14 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>欠料看板</title>
+  <title>欠料看板 · 壹月科技</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <div id="app">
     <!-- 左侧导航 -->
     <nav id="sidebar">
-      <div class="brand">欠料看板</div>
+      <div class="brand">
+        <img class="brand-logo" src="/logo.png" alt="壹月科技 JANUARY TECHNOLOGY">
+        <div class="brand-text">
+          <div class="brand-name">欠料看板</div>
+          <div class="brand-sub">壹月科技 · JANUARY</div>
+        </div>
+      </div>
       <ul>
         <li data-page="overview" class="active">总览</li>
         <li data-page="search">查询</li>
@@ -22,6 +29,10 @@
         <li data-page="sync">数据同步</li>
         <li data-page="settings">设置</li>
       </ul>
+      <div class="brand-footer">
+        <span class="brand-footer-dot"></span>
+        <span id="brand-footer-text">本地运行</span>
+      </div>
     </nav>
 
     <!-- 右侧主区 -->
