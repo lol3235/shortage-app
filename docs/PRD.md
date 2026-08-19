@@ -118,15 +118,15 @@
   - `箱体进度统计（非巨茂）`（非巨茂，12 列：序号/图纸时间/项目名称/供应商/采购订单号/物料编码/品名/规格型号图纸编号/数量/到货情况/预计到货时间/实际到货时间）
 - **同步**：本地 `kdocs-cli`（`C:/Users/Apua/.local/bin/kdocs-cli.exe`，需先 `kdocs-cli auth login`）拉取两个分表 → 归一化 → 写入独立库；或用 `_bootstrap_sheetmetal.py` 一键初始化。失败保留旧数据。
 - **存储**：独立 SQLite `data/sheetmetal.db` + 快照 `data/seed_sheetmetal.sql`（随 push 触发 Render 重部署，机制同 §9.2）。
-- **表字段**（`sheetmetal_items`）：分表 `sheet`、批次 `batch`、图纸时间 `drawing_date`、交货时间 `delivery_date`、项目 `project`、设备类别 `category`、供应商 `supplier`、采购单 `po_no`、物料编码 `material_code`、名称 `name`、规格 `spec`、数量 `qty`、到货情况 `arrival`、预计 `eta`、实际到货 `arrival_date`、备注 `note`、`synced_at`。
+- **表字段**（`sheetmetal_items`）：分表 `sheet`、发货批次 `batch`（仅巨茂有，取「壹月发货批次」表头）、图纸批次 `drawing_batch`、图纸时间 `drawing_date`、交货时间 `delivery_date`、项目 `project`（按项目名称区分，巨茂只是其中一个项目）、设备类别 `category`、供应商 `supplier`、采购单 `po_no`、物料编码 `material_code`、名称 `name`、规格 `spec`、数量 `qty`、到货情况 `arrival`、预计 `eta`、实际到货 `arrival_date`、备注 `note`、`synced_at`。
 - **到货判定**：`arrival` 含「已到货」视为已到货；其余视为欠料（无独立"状态列"过滤，以到货情况为准）。
 - **功能（前端页 `page-sheetmetal`）**：
-  - 指标卡：总量 / 总数量 / 已到货 / 欠料条数 / 欠料数量。
-  - 分布面板：分表分布、设备类别（巨茂）、供应商（非巨茂）、批次分布。
-  - 查询：跨全部字段模糊搜索 + 筛选（全部 / 仅欠料 / 仅已到货），结果表格含「已到货」标记。
+  - 指标卡：总量 / 总数量 / 已到货 / 欠料条数 / 欠料数量（已移除"分表数"卡片）。
+  - 分布面板：**项目分布**（按项目名称区分，巨茂为其中之一）、设备类别分布、供应商分布（整表聚合，跨所有项目）、发货批次分布（仅巨茂，按「壹月发货批次」表头）。不再单独统计分表分布。
+  - 查询：跨全部字段模糊搜索（含发货批次/图纸批次）+ 筛选（全部 / 仅欠料 / 仅已到货），结果表格含「已到货」标记。
   - 同步：「🔄 同步钣金」按钮 + 同步状态提示。
 - **API**：`/api/sheetmetal_overview`、`/api/sheetmetal_search`、`/api/sheetmetal_sync_status`、`/api/sheetmetal_settings`。
-- **已知限制**：到货判定仅看「到货情况」文本，未做结构化状态列；非巨茂表有"项目"字段但总览未单列项目分布（可用查询按项目搜）。
+- **已知限制**：到货判定仅看「到货情况」文本，未做结构化状态列；业务上两个分表仍以「项目名称」为统一区分维度，巨茂只是其中一个项目（未来可合并为单一分表）。
 
 ---
 
