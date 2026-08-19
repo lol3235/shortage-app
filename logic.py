@@ -32,7 +32,7 @@ def _fmt_sheets(counter):
 
 
 def _parse_date(s):
-    """尽力把交期文本解析成 (年,月,日)；无法识别返回 None。"""
+    """尽力把交期文本解析成 (年,月,日)；无法识别或日期非法返回 None。"""
     s = (s or "").strip()
     if not s:
         return None
@@ -41,15 +41,27 @@ def _parse_date(s):
     # 优先：YYYY-MM-DD / YYYY/M/D
     m = re.search(r"(\d{4})\s*[-/]\s*(\d{1,2})\s*[-/]\s*(\d{1,2})", s)
     if m:
-        return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        try:
+            datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            pass
     # 中文：X月X日
     m = re.search(r"(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?", s)
     if m:
-        return (2026, int(m.group(1)), int(m.group(2)))
+        try:
+            datetime.date(2026, int(m.group(1)), int(m.group(2)))
+            return (2026, int(m.group(1)), int(m.group(2)))
+        except ValueError:
+            pass
     # 其余：M/D 或 M-D（按当年）
     m = re.search(r"(\d{1,2})\s*[./-]\s*(\d{1,2})", s)
     if m:
-        return (2026, int(m.group(1)), int(m.group(2)))
+        try:
+            datetime.date(2026, int(m.group(1)), int(m.group(2)))
+            return (2026, int(m.group(1)), int(m.group(2)))
+        except ValueError:
+            pass
     return None
 
 
@@ -91,12 +103,16 @@ def search(items, kw):
 
 def project_summary(items, kw):
     kw = (kw or "").strip()
-    if not kw:
-        return {"error": "请输入项目名称或项目编码"}
     k = kw.lower()
-    rows = [i for i in items if k in str(i.get("项目") or i.get("项目编码") or "").lower()]
+    if kw:
+        rows = [i for i in items if k in str(i.get("项目") or i.get("项目编码") or "").lower()]
+        if not rows:
+            return {"error": "未找到项目「%s」的欠料" % kw}
+    else:
+        rows = items
     if not rows:
-        return {"error": "未找到项目「%s」的欠料" % kw}
+        return {"error": "当前无欠料数据"}
+
     by_material = defaultdict(lambda: {"qty": 0, "name": "", "status": Counter(), "brands": Counter(), "sheets": Counter()})
     for i in rows:
         mc = i.get("物料编码") or "未知编码"
@@ -111,14 +127,35 @@ def project_summary(items, kw):
     def _pick_brand(counter):
         if not counter:
             return "—"
-        # 取数量最多的品牌；若前两名并列，则并列显示
         top = counter.most_common(2)
         if len(top) == 2 and top[0][1] == top[1][1]:
             return "/".join(sorted([top[0][0], top[1][0]]))
         return top[0][0]
 
+    # keyword 为空时返回「全部项目汇总」供默认展示
+    if not kw:
+        by_project = defaultdict(lambda: {"qty": 0, "status": Counter(), "sheets": Counter()})
+        for i in rows:
+            proj = i.get("项目") or i.get("项目编码") or "未命名"
+            by_project[proj]["qty"] += int(i.get("欠料数量") or 0)
+            by_project[proj]["status"][i.get("eta_status", "其他")] += 1
+            by_project[proj]["sheets"][i.get("sheet") or "未知"] += 1
+        return {
+            "keyword": "",
+            "mode": "all_projects",
+            "rows": len(rows),
+            "total_qty": sum(int(i.get("欠料数量") or 0) for i in rows),
+            "by_status": dict(Counter(i.get("eta_status", "其他") for i in rows)),
+            "by_project": sorted(
+                [{"project": p, "qty": info["qty"],
+                  "status": dict(info["status"]), "sheets": _fmt_sheets(info["sheets"])}
+                 for p, info in by_project.items()],
+                key=lambda x: -x["qty"])[:50],
+        }
+
     return {
         "keyword": kw,
+        "mode": "single_project",
         "rows": len(rows),
         "total_qty": sum(int(i.get("欠料数量") or 0) for i in rows),
         "by_status": dict(Counter(i.get("eta_status", "其他") for i in rows)),
@@ -131,15 +168,19 @@ def project_summary(items, kw):
 
 def material_summary(items, kw):
     kw = (kw or "").strip()
-    if not kw:
-        return {"error": "请输入物料名称或物料编码"}
     k = kw.lower()
-    rows = [i for i in items if any(
-        k in str(i.get(f, "")).lower()
-        for f in ["物料名称", "物料编码", "规格说明", "品牌"]
-    )]
+    if kw:
+        rows = [i for i in items if any(
+            k in str(i.get(f, "")).lower()
+            for f in ["物料名称", "物料编码", "规格说明", "品牌"]
+        )]
+        if not rows:
+            return {"error": "未找到物料「%s」的缺货记录" % kw}
+    else:
+        rows = items
     if not rows:
-        return {"error": "未找到物料「%s」的缺货记录" % kw}
+        return {"error": "当前无欠料数据"}
+
     by_material = defaultdict(lambda: {"qty": 0, "name": "", "projects": set(), "status": Counter(), "sheets": Counter()})
     by_project = defaultdict(lambda: {"qty": 0, "status": Counter(), "sheets": Counter()})
     for i in rows:
@@ -155,8 +196,9 @@ def material_summary(items, kw):
         by_project[proj]["status"][i.get("eta_status", "其他")] += 1
         by_project[proj]["sheets"][sheet] += 1
 
-    return {
+    result = {
         "keyword": kw,
+        "mode": "search" if kw else "all_materials",
         "rows": len(rows),
         "total_qty": sum(int(i.get("欠料数量") or 0) for i in rows),
         "by_material": sorted(
@@ -165,24 +207,53 @@ def material_summary(items, kw):
               "sheets": _fmt_sheets(info["sheets"])}
              for mc, info in by_material.items()],
             key=lambda x: -x["qty"])[:50],
-        "by_project": sorted(
+    }
+    # 带 keyword 时额外展示项目分布与明细；默认全部物料只给物料列表（防信息过载）
+    if kw:
+        result["by_project"] = sorted(
             [{"project": p, "qty": info["qty"], "status": dict(info["status"]),
               "sheets": _fmt_sheets(info["sheets"])}
              for p, info in by_project.items()],
-            key=lambda x: -x["qty"])[:15],
-        "details": rows[:30],
-    }
+            key=lambda x: -x["qty"])[:15]
+        result["details"] = rows[:30]
+    return result
 
 
 def brand_summary(items, kw):
-    """按品牌汇总欠料（新增）。"""
+    """按品牌汇总欠料（新增）。keyword 为空时返回全部品牌汇总。"""
     kw = (kw or "").strip()
-    if not kw:
-        return {"error": "请输入品牌名称，如 富士金 / Siemens"}
     k = kw.lower()
-    rows = [i for i in items if k in str(i.get("品牌", "")).lower()]
+    if kw:
+        rows = [i for i in items if k in str(i.get("品牌", "")).lower()]
+        if not rows:
+            return {"error": "未找到品牌「%s」的欠料记录" % kw}
+    else:
+        rows = items
     if not rows:
-        return {"error": "未找到品牌「%s」的欠料记录" % kw}
+        return {"error": "当前无欠料数据"}
+
+    # keyword 为空：直接按品牌聚合
+    if not kw:
+        by_brand = defaultdict(lambda: {"qty": 0, "materials": set(), "status": Counter(), "sheets": Counter()})
+        for i in rows:
+            b = (i.get("品牌") or "").strip() or "未填品牌"
+            by_brand[b]["qty"] += int(i.get("欠料数量") or 0)
+            by_brand[b]["materials"].add(i.get("物料编码") or i.get("物料名称") or "—")
+            by_brand[b]["status"][i.get("eta_status", "其他")] += 1
+            by_brand[b]["sheets"][i.get("sheet") or "未知"] += 1
+        return {
+            "keyword": "",
+            "mode": "all_brands",
+            "rows": len(rows),
+            "total_qty": sum(int(i.get("欠料数量") or 0) for i in rows),
+            "by_status": dict(Counter(i.get("eta_status", "其他") for i in rows)),
+            "by_brand": sorted(
+                [{"brand": b, "qty": info["qty"], "materials": len(info["materials"]),
+                  "status": dict(info["status"]), "sheets": _fmt_sheets(info["sheets"])}
+                 for b, info in by_brand.items()],
+                key=lambda x: -x["qty"])[:50],
+        }
+
     total_qty = sum(int(i.get("欠料数量") or 0) for i in rows)
     by_material = defaultdict(lambda: {"qty": 0, "name": "", "projects": set(), "status": Counter(), "sheets": Counter()})
     by_project = defaultdict(lambda: {"qty": 0, "status": Counter(), "sheets": Counter()})
@@ -200,6 +271,7 @@ def brand_summary(items, kw):
         by_project[proj]["sheets"][sheet] += 1
     return {
         "keyword": kw,
+        "mode": "single_brand",
         "rows": len(rows),
         "total_qty": total_qty,
         "by_material": sorted(
@@ -219,15 +291,18 @@ def brand_summary(items, kw):
 
 def eta_check(items, kw):
     kw = (kw or "").strip()
-    if not kw:
-        return {"error": "请问要查谁的到货？例如 西安项目 / B07-05-00-03-10"}
     k = kw.lower()
-    rows = [i for i in items if any(
-        k in str(i.get(f, "")).lower()
-        for f in ["项目", "项目编码", "物料编码", "物料名称", "品牌", "规格说明"]
-    )]
+    if kw:
+        rows = [i for i in items if any(
+            k in str(i.get(f, "")).lower()
+            for f in ["项目", "项目编码", "物料编码", "物料名称", "品牌", "规格说明"]
+        )]
+        if not rows:
+            return {"error": "未找到「%s」相关的欠料，无法判定交期" % kw}
+    else:
+        rows = items
     if not rows:
-        return {"error": "未找到「%s」相关的欠料，无法判定交期" % kw}
+        return {"error": "当前无欠料数据"}
 
     today = datetime.date.today()
 

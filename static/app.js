@@ -36,6 +36,11 @@ document.querySelectorAll('#sidebar li').forEach(li => {
     if (page === 'settings') loadSettings();
     if (page === 'sync') refreshSyncInfo();
     if (page === 'sheetmetal') loadSheetmetal();
+    // 汇总/交期页面：点开后立即用空 keyword 展示默认汇总
+    if (page === 'project' && !$('project-kw').value.trim()) $('btn-project').click();
+    if (page === 'material' && !$('material-kw').value.trim()) $('btn-material').click();
+    if (page === 'brand' && !$('brand-kw').value.trim()) $('btn-brand').click();
+    if (page === 'eta' && !$('eta-kw').value.trim()) $('btn-eta').click();
   });
 });
 
@@ -126,12 +131,28 @@ $('btn-project').addEventListener('click', () => {
   API('/api/project', { kw }).then(d => {
     if (d.error) { $('project-result').innerHTML = `<p class="error">${esc(d.error)}</p>`; return; }
     let h = `<p>共 <b>${d.rows}</b> 条，合计欠料 <b>${d.total_qty}</b></p>`;
-    h += `<p class="muted">按紧急度：${Object.entries(d.by_status||{}).map(([k,v])=>`${k}:${v}`).join(' / ')||'—'}</p>`;
-    h += '<h3 style="margin:12px 0 6px">按物料编码汇总</h3>';
-    h += renderProjectTable(d.by_material || []);
+    if (d.mode === 'all_projects') {
+      h += `<p class="muted">当前展示全部项目，可在上方搜索框输入项目名称或编码过滤</p>`;
+      h += rowsTable((d.by_project || []).map(p => ({
+        project: p.project,
+        qty: p.qty,
+        status: Object.entries(p.status || {}).map(([k,v])=>`${k}:${v}`).join('/'),
+        sheets: p.sheets,
+      })), [
+        { key: 'project', label: '项目' },
+        { key: 'qty', label: '合计数量' },
+        { key: 'status', label: '紧急度' },
+        { key: 'sheets', label: '来源表' },
+      ]);
+    } else {
+      h += `<p class="muted">按紧急度：${Object.entries(d.by_status||{}).map(([k,v])=>`${k}:${v}`).join(' / ')||'—'}</p>`;
+      h += '<h3 style="margin:12px 0 6px">按物料编码汇总</h3>';
+      h += renderProjectTable(d.by_material || []);
+    }
     $('project-result').innerHTML = h;
   });
 });
+$('project-kw').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-project').click(); });
 
 // ---------- 物料汇总 ----------
 $('btn-material').addEventListener('click', () => {
@@ -139,33 +160,47 @@ $('btn-material').addEventListener('click', () => {
   API('/api/material', { kw }).then(d => {
     if (d.error) { $('material-result').innerHTML = `<p class="error">${esc(d.error)}</p>`; return; }
     let h = `<p>命中 <b>${d.rows}</b> 条，合计欠货 <b>${d.total_qty}</b></p>`;
+    if (d.mode === 'all_materials') {
+      h += `<p class="muted">当前展示全部物料，可在上方搜索框输入物料编码或名称过滤</p>`;
+    }
     h += '<h3 style="margin:12px 0 6px">按物料编码汇总（跨项目加总）</h3>';
     h += rowsTable(d.by_material.map(m => ({ mc: m.mc, name: m.name, qty: m.qty, projects: m.projects, status: Object.entries(m.status).map(([k,v])=>`${k}:${v}`).join('/'), sheets: m.sheets })),
       [{ key: 'mc', label: '物料编码' }, { key: 'name', label: '名称' }, { key: 'qty', label: '合计数量' }, { key: 'projects', label: '项目数' }, { key: 'status', label: '紧急度' }, { key: 'sheets', label: '来源表' }]);
-    h += '<h3 style="margin:12px 0 6px">按项目分布</h3>';
-    h += rowsTable(d.by_project.map(p => ({ project: p.project, qty: p.qty, status: Object.entries(p.status).map(([k,v])=>`${k}:${v}`).join('/'), sheets: p.sheets })),
-      [{ key: 'project', label: '项目' }, { key: 'qty', label: '合计数量' }, { key: 'status', label: '紧急度' }, { key: 'sheets', label: '来源表' }]);
-    if (d.details && d.details.length) { h += '<h3 style="margin:12px 0 6px">明细 Top</h3>' + rowsTable(d.details, DETAIL_COLS); }
+    if (d.mode !== 'all_materials') {
+      h += '<h3 style="margin:12px 0 6px">按项目分布</h3>';
+      h += rowsTable(d.by_project.map(p => ({ project: p.project, qty: p.qty, status: Object.entries(p.status).map(([k,v])=>`${k}:${v}`).join('/'), sheets: p.sheets })),
+        [{ key: 'project', label: '项目' }, { key: 'qty', label: '合计数量' }, { key: 'status', label: '紧急度' }, { key: 'sheets', label: '来源表' }]);
+      if (d.details && d.details.length) { h += '<h3 style="margin:12px 0 6px">明细 Top</h3>' + rowsTable(d.details, DETAIL_COLS); }
+    }
     $('material-result').innerHTML = h;
   });
 });
+$('material-kw').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-material').click(); });
 
 // ---------- 品牌汇总 ----------
 $('btn-brand').addEventListener('click', () => {
   const kw = $('brand-kw').value.trim();
   API('/api/brand', { kw }).then(d => {
     if (d.error) { $('brand-result').innerHTML = `<p class="error">${esc(d.error)}</p>`; return; }
-    let h = `<p>该品牌命中 <b>${d.rows}</b> 条，合计欠货 <b>${d.total_qty}</b></p>`;
-    h += '<h3 style="margin:12px 0 6px">按物料编码分布（跨项目加总）</h3>';
-    h += rowsTable(d.by_material.map(m => ({ mc: m.mc, name: m.name, qty: m.qty, projects: m.projects, status: Object.entries(m.status).map(([k,v])=>`${k}:${v}`).join('/'), sheets: m.sheets })),
-      [{ key: 'mc', label: '物料编码' }, { key: 'name', label: '名称' }, { key: 'qty', label: '合计数量' }, { key: 'projects', label: '项目数' }, { key: 'status', label: '紧急度' }, { key: 'sheets', label: '来源表' }]);
-    h += '<h3 style="margin:12px 0 6px">按项目分布</h3>';
-    h += rowsTable(d.by_project.map(p => ({ project: p.project, qty: p.qty, status: Object.entries(p.status).map(([k,v])=>`${k}:${v}`).join('/'), sheets: p.sheets })),
-      [{ key: 'project', label: '项目' }, { key: 'qty', label: '合计数量' }, { key: 'status', label: '紧急度' }, { key: 'sheets', label: '来源表' }]);
-    if (d.details && d.details.length) { h += '<h3 style="margin:12px 0 6px">明细 Top</h3>' + rowsTable(d.details, DETAIL_COLS); }
+    let h = `<p>${kw ? '该品牌' : '全部'}命中 <b>${d.rows}</b> 条，合计欠货 <b>${d.total_qty}</b></p>`;
+    if (d.mode === 'all_brands') {
+      h += `<p class="muted">当前展示全部品牌，可在上方搜索框输入品牌名称过滤</p>`;
+      h += '<h3 style="margin:12px 0 6px">按品牌汇总</h3>';
+      h += rowsTable(d.by_brand.map(b => ({ brand: b.brand, qty: b.qty, materials: b.materials, status: Object.entries(b.status).map(([k,v])=>`${k}:${v}`).join('/'), sheets: b.sheets })),
+        [{ key: 'brand', label: '品牌' }, { key: 'qty', label: '合计数量' }, { key: 'materials', label: '涉及物料数' }, { key: 'status', label: '紧急度' }, { key: 'sheets', label: '来源表' }]);
+    } else {
+      h += '<h3 style="margin:12px 0 6px">按物料编码分布（跨项目加总）</h3>';
+      h += rowsTable(d.by_material.map(m => ({ mc: m.mc, name: m.name, qty: m.qty, projects: m.projects, status: Object.entries(m.status).map(([k,v])=>`${k}:${v}`).join('/'), sheets: m.sheets })),
+        [{ key: 'mc', label: '物料编码' }, { key: 'name', label: '名称' }, { key: 'qty', label: '合计数量' }, { key: 'projects', label: '项目数' }, { key: 'status', label: '紧急度' }, { key: 'sheets', label: '来源表' }]);
+      h += '<h3 style="margin:12px 0 6px">按项目分布</h3>';
+      h += rowsTable(d.by_project.map(p => ({ project: p.project, qty: p.qty, status: Object.entries(p.status).map(([k,v])=>`${k}:${v}`).join('/'), sheets: p.sheets })),
+        [{ key: 'project', label: '项目' }, { key: 'qty', label: '合计数量' }, { key: 'status', label: '紧急度' }, { key: 'sheets', label: '来源表' }]);
+      if (d.details && d.details.length) { h += '<h3 style="margin:12px 0 6px">明细 Top</h3>' + rowsTable(d.details, DETAIL_COLS); }
+    }
     $('brand-result').innerHTML = h;
   });
 });
+$('brand-kw').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-brand').click(); });
 
 // ---------- 交期对比 ----------
 function formatEtaDate(iso, fallback) {
@@ -261,7 +296,11 @@ $('btn-eta').addEventListener('click', () => {
   const kw = $('eta-kw').value.trim();
   API('/api/eta', { kw }).then(d => {
     if (d.error) { $('eta-result').innerHTML = `<p class="error">${esc(d.error)}</p>`; return; }
-    let h = `<div class="cards" style="margin-bottom:14px">
+    let h = '';
+    if (!kw) {
+      h += `<p class="muted">当前展示全部欠料的交期对比，可在上方搜索框输入项目/物料/品牌过滤</p>`;
+    }
+    h += `<div class="cards" style="margin-bottom:14px">
       <div class="card"><div class="num">${d.rows}</div><div class="lbl">匹配条数</div></div>
       <div class="card"><div class="num" style="color:#b91c1c">${d.late}</div><div class="lbl">逾期风险</div></div>
       <div class="card"><div class="num" style="color:#15803d">${d.on_time}</div><div class="lbl">来得及</div></div>
@@ -271,6 +310,7 @@ $('btn-eta').addEventListener('click', () => {
     $('eta-result').innerHTML = h;
   });
 });
+$('eta-kw').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-eta').click(); });
 
 // ---------- 钣金欠料（箱体进度统计）----------
 function loadSheetmetal() {
@@ -447,16 +487,17 @@ function refreshCurrent() {
   if (currentPage === 'sync') return refreshSyncInfo();
   if (currentPage === 'settings') return loadSettings();
   if (currentPage === 'sheetmetal') return loadSheetmetal();
-  // 查询类页面：仅当输入框有内容时才自动重拉，避免无意义抖动
+  // 查询/汇总类页面：空 keyword 也自动重拉，保持默认汇总视图最新
   const qmap = {
-    search:   ['search-kw',  'btn-search'],
-    project:  ['project-kw', 'btn-project'],
-    material: ['material-kw','btn-material'],
-    brand:    ['brand-kw',   'btn-brand'],
-    eta:      ['eta-kw',     'btn-eta'],
+    search:   ['search-kw',  'btn-search',   false],
+    project:  ['project-kw', 'btn-project',  true],
+    material: ['material-kw','btn-material', true],
+    brand:    ['brand-kw',   'btn-brand',    true],
+    eta:      ['eta-kw',     'btn-eta',      true],
   };
   const m = qmap[currentPage];
-  if (m && $(m[0]).value.trim()) $(m[1]).click();
+  if (!m) return;
+  if (m[2] || $(m[0]).value.trim()) $(m[1]).click();
 }
 
 // ---------- 初始化 ----------
