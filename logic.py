@@ -272,6 +272,38 @@ def sheetmetal_is_arrived(item):
     return "已到货" in a
 
 
+_TODAY = datetime.date.today
+
+
+def _parse_eta_days(eta):
+    """解析 ETA 文本为距离今天的天数（可负表示逾期）。无法解析返回 None。"""
+    today = _TODAY()
+    text = (eta or "").strip()
+    if not text:
+        return None
+    # 已到货 / 空值 / 无意义占位
+    if "已到货" in text:
+        return None
+    # 优先匹配 M.D / M/D / M月D日，允许尾部范围如 8.19/20
+    m = re.match(r"(\d{1,2})\s*[./月]\s*(\d{1,2})\s*日?(?:\s*[-~/]\s*\d{1,2})?\s*$", text)
+    if m:
+        month, day = int(m.group(1)), int(m.group(2))
+        try:
+            y = today.year
+            d = datetime.date(y, month, day)
+            # 若解析出的日期比今天早超过 90 天，视为明年
+            if (today - d).days > 90:
+                d = datetime.date(y + 1, month, day)
+            return (d - today).days
+        except ValueError:
+            pass
+    # 兜底：XX天内 / XX天
+    m = re.search(r"(\d+)\s*天", text)
+    if m:
+        return int(m.group(1))
+    return None
+
+
 def sheetmetal_active(items):
     """钣金欠料：未到货（不含「已到货」）视为欠料。"""
     return [i for i in items if not sheetmetal_is_arrived(i)]
@@ -294,8 +326,27 @@ def sheetmetal_overview(items):
     by_proj = Counter(i.get("project") or "未填项目" for i in items)
     by_cat = Counter(i.get("category") for i in items if i.get("category"))
     by_sup = Counter(i.get("supplier") for i in items if i.get("supplier"))
-    by_batch = Counter(i.get("batch") for i in items
-                       if i.get("batch") and i.get("batch") != "合计")
+
+    # 发货批次分布：按批次聚合，并拆分已到货/未到货 + 剩余需求时间
+    batch_groups = defaultdict(list)
+    for i in items:
+        b = i.get("batch") or ""
+        if b and b != "合计":
+            batch_groups[b].append(i)
+    by_batch = []
+    for b, batch_items in sorted(batch_groups.items(), key=lambda kv: -len(kv[1])):
+        arr = [i for i in batch_items if sheetmetal_is_arrived(i)]
+        sh = [i for i in batch_items if not sheetmetal_is_arrived(i)]
+        sh_days = [_parse_eta_days(i.get("eta")) for i in sh]
+        sh_days = [d for d in sh_days if d is not None]
+        by_batch.append({
+            "batch": b,
+            "count": len(batch_items),
+            "arrived": len(arr),
+            "shortage": len(sh),
+            "remaining_days": min(sh_days) if sh_days else None,
+        })
+
     return {
         "total": len(items),
         "total_qty": sum(int(i.get("qty") or 0) for i in items),
@@ -305,7 +356,7 @@ def sheetmetal_overview(items):
         "by_project": [{"project": k, "count": v} for k, v in by_proj.most_common()],
         "by_category": [{"category": k, "count": v} for k, v in by_cat.most_common()],
         "by_supplier": [{"supplier": k, "count": v} for k, v in by_sup.most_common()],
-        "by_batch": [{"batch": k, "count": v} for k, v in by_batch.most_common()],
+        "by_batch": by_batch,
     }
 
 

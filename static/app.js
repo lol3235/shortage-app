@@ -202,7 +202,7 @@ function renderSheetmetalOverview(d) {
   $('sm-by-project').innerHTML = smBarRows(d.by_project, 'project');
   $('sm-by-category').innerHTML = smBarRows(d.by_category, 'category');
   $('sm-by-supplier').innerHTML = smBarRows(d.by_supplier, 'supplier');
-  $('sm-by-batch').innerHTML = smBarRows(d.by_batch, 'batch');
+  $('sm-by-batch').innerHTML = renderSmBatchRows(d.by_batch);
 }
 
 function smBarRows(data, labelKey) {
@@ -214,6 +214,36 @@ function smBarRows(data, labelKey) {
   return arr.map(x => `<div class="bar-row"><div class="name">${esc(x[labelKey])}</div>
     <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, (x.count || 0) / max * 100)}%"></div></div>
     <div class="val">${x.count || 0}</div></div>`).join('');
+}
+
+function renderSmBatchRows(data) {
+  if (!data || !data.length) return '<p class="muted">无数据</p>';
+  const max = Math.max(1, ...data.map(x => x.count || 0));
+  return data.map(x => {
+    const total = x.count || 0;
+    const arr = x.arrived || 0;
+    const sh = x.shortage || 0;
+    const arrPct = total ? Math.min(100, arr / total * 100) : 0;
+    const shPct = total ? Math.min(100, sh / total * 100) : 0;
+    let timeLabel = '';
+    if (x.remaining_days != null) {
+      timeLabel = x.remaining_days >= 0
+        ? `剩余 ${x.remaining_days} 天`
+        : `逾期 ${Math.abs(x.remaining_days)} 天`;
+    }
+    return `<div class="bar-row">
+      <div class="name">${esc(x.batch)}</div>
+      <div class="bar-track">
+        <div class="bar-stack">
+          <div class="bar-fill-ok" style="width:${arrPct}%"></div>
+          <div class="bar-fill-warn" style="width:${shPct}%"></div>
+        </div>
+      </div>
+      <div class="sm-batch-val">
+        已到 <b>${arr}</b> / 未到 <b style="color:#dc2626">${sh}</b>${timeLabel ? ' · ' + esc(timeLabel) : ''}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 let currentSmFilter = 'all';
