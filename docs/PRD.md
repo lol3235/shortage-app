@@ -114,8 +114,8 @@
 
 - **用途**：把金山文档「箱体进度统计」表的箱体欠料单独建一个**独立模块**，与企微主线（§3.1–§3.8）平行，数据源、数据库、同步、导航页均独立，不混用。
 - **数据源**：金山文档「箱体进度统计」（file_id `HeqbtFcx3rMqYYFRpA9n1xZrPzbTeaL4X`，URL `https://www.kdocs.cn/l/csUkRQG8wIXk`）。仅以下两个**明细分表**计入欠料（其余为汇总表，不计）：
-  - `5A-巨茂箱体进度8.17`（巨茂，11 列）
-  - `箱体进度统计（非巨茂）`（非巨茂，12 列）
+  - `5A-巨茂箱体进度8.17`（巨茂，13 列：序号/图纸批次/图纸时间/项目名称/供应商/設備類別/品名/规格型号图纸编号/数量/到货情况/预计到货时间/实际到货时间/壹月发货批次）
+  - `箱体进度统计（非巨茂）`（非巨茂，12 列：序号/图纸时间/项目名称/供应商/采购订单号/物料编码/品名/规格型号图纸编号/数量/到货情况/预计到货时间/实际到货时间）
 - **同步**：本地 `kdocs-cli`（`C:/Users/Apua/.local/bin/kdocs-cli.exe`，需先 `kdocs-cli auth login`）拉取两个分表 → 归一化 → 写入独立库；或用 `_bootstrap_sheetmetal.py` 一键初始化。失败保留旧数据。
 - **存储**：独立 SQLite `data/sheetmetal.db` + 快照 `data/seed_sheetmetal.sql`（随 push 触发 Render 重部署，机制同 §9.2）。
 - **表字段**（`sheetmetal_items`）：分表 `sheet`、批次 `batch`、图纸时间 `drawing_date`、交货时间 `delivery_date`、项目 `project`、设备类别 `category`、供应商 `supplier`、采购单 `po_no`、物料编码 `material_code`、名称 `name`、规格 `spec`、数量 `qty`、到货情况 `arrival`、预计 `eta`、实际到货 `arrival_date`、备注 `note`、`synced_at`。

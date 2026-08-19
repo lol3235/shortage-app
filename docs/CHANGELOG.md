@@ -5,6 +5,17 @@
 
 ---
 
+## v1.5.1 · 2026-08-19 · 钣金模块修复
+
+| 提交 | 类型 | 说明 |
+|---|---|---|
+| `cfc34fc` | fix | `app.py` 启动时显式调用 `db.init_sheetmetal_db()`，避免 `sheetmetal.db` 为空/重建时表结构缺失导致 `no such table: sheetmetal_items` |
+| `cfc34fc` | fix | `sync_sheetmetal.py` 修正巨茂分表列布局：从旧 11 列更新为当前 13 列（新增项目名称、供应商，列索引整体错位），恢复 194 条巨茂数据解析；同步增加事务保护，任一明细分表解析为空时整体抛异常、不覆盖旧数据 |
+| `cfc34fc` | fix | `app.py` / `sync_sheetmetal.py` 子进程调用统一加 `encoding="utf-8", errors="replace"`，避免中文 Windows 默认 GBK 解码失败导致同步子进程 stdout 为 None |
+| `cfc34fc` | docs | PRD §3.9 更新巨茂/非巨茂分表列数与字段说明 |
+
+---
+
 ## v1.5 · 2026-08-18 · 新增钣金欠料独立模块
 
 | 提交 | 类型 | 说明 |
