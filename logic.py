@@ -309,6 +309,32 @@ def sheetmetal_active(items):
     return [i for i in items if not sheetmetal_is_arrived(i)]
 
 
+def _sheetmetal_project_stats(proj_groups):
+    """项目分布：按项目名聚合，拆分已到货/未到货，并按「预计到货(ETA)」计算剩余/逾期天数。
+
+    剩余天数 = 该项目未到货条目中，最早 ETA 距今天的天数（负值=逾期）。
+    全部到货（shortage==0）时不显示剩余时间（返回 None）。
+    """
+    out = []
+    for p, items in proj_groups.items():
+        arr = [i for i in items if sheetmetal_is_arrived(i)]
+        sh = [i for i in items if not sheetmetal_is_arrived(i)]
+        if sh:
+            sh_days = [_parse_eta_days(i.get("eta")) for i in sh]
+            sh_days = [d for d in sh_days if d is not None]
+            remaining_days = min(sh_days) if sh_days else None
+        else:
+            remaining_days = None
+        out.append({
+            "project": p,
+            "count": len(items),
+            "arrived": len(arr),
+            "shortage": len(sh),
+            "remaining_days": remaining_days,
+        })
+    return sorted(out, key=lambda x: -x["count"])
+
+
 def sheetmetal_overview(items):
     """钣金欠料总览：总量 / 已到货 / 欠料 / 项目与维度分布。
 
@@ -323,7 +349,9 @@ def sheetmetal_overview(items):
                 "by_category": [], "by_supplier": [], "by_batch": []}
     arrived = [i for i in items if sheetmetal_is_arrived(i)]
     shortage = [i for i in items if not sheetmetal_is_arrived(i)]
-    by_proj = Counter(i.get("project") or "未填项目" for i in items)
+    proj_groups = defaultdict(list)
+    for i in items:
+        proj_groups[i.get("project") or "未填项目"].append(i)
     by_cat = Counter(i.get("category") for i in items if i.get("category"))
     by_sup = Counter(i.get("supplier") for i in items if i.get("supplier"))
 
@@ -363,7 +391,7 @@ def sheetmetal_overview(items):
         "arrived": len(arrived),
         "shortage": len(shortage),
         "shortage_qty": sum(int(i.get("qty") or 0) for i in shortage),
-        "by_project": [{"project": k, "count": v} for k, v in by_proj.most_common()],
+        "by_project": _sheetmetal_project_stats(proj_groups),
         "by_category": [{"category": k, "count": v} for k, v in by_cat.most_common()],
         "by_supplier": [{"supplier": k, "count": v} for k, v in by_sup.most_common()],
         "by_batch": by_batch,

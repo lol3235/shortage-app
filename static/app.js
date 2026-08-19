@@ -199,10 +199,10 @@ function renderSheetmetalOverview(d) {
     <div class="card"><div class="num" style="color:#b91c1c">${d.shortage}</div><div class="lbl">欠料条数</div></div>
     <div class="card"><div class="num" style="color:#b91c1c">${d.shortage_qty}</div><div class="lbl">欠料数量</div></div>
     <div class="card"><div class="num" style="color:#15803d">${d.arrived}</div><div class="lbl">已到货</div></div>`;
-  $('sm-by-project').innerHTML = smBarRows(d.by_project, 'project');
+  $('sm-by-project').innerHTML = renderSmSplitRows(d.by_project, 'project');
   $('sm-by-category').innerHTML = smBarRows(d.by_category, 'category');
   $('sm-by-supplier').innerHTML = smBarRows(d.by_supplier, 'supplier');
-  $('sm-by-batch').innerHTML = renderSmBatchRows(d.by_batch);
+  $('sm-by-batch').innerHTML = renderSmSplitRows(d.by_batch, 'batch');
 }
 
 function smBarRows(data, labelKey) {
@@ -216,7 +216,7 @@ function smBarRows(data, labelKey) {
     <div class="val">${x.count || 0}</div></div>`).join('');
 }
 
-function renderSmBatchRows(data) {
+function renderSmSplitRows(data, nameKey) {
   if (!data || !data.length) return '<p class="muted">无数据</p>';
   const max = Math.max(1, ...data.map(x => x.count || 0));
   return data.map(x => {
@@ -232,7 +232,7 @@ function renderSmBatchRows(data) {
         : `逾期 ${Math.abs(x.remaining_days)} 天`;
     }
     return `<div class="bar-row">
-      <div class="name">${esc(x.batch)}</div>
+      <div class="name">${esc(x[nameKey])}</div>
       <div class="bar-track">
         <div class="bar-stack">
           <div class="bar-fill-ok" style="width:${arrPct}%"></div>
