@@ -577,6 +577,12 @@ setInterval(() => {
       lastKnownSync = d.last_sync;
     }
   }).catch(() => {});
+  // 钣金同步状态独立刷新：避免只手动点过同步按钮后页面长时间显示过期 error
+  API('/api/sheetmetal_sync_status').then(d => {
+    if ($('sm-sync-info')) {
+        $('sm-sync-info').textContent = d.syncing ? '同步中…' : (d.error ? '失败：' + d.error : '完成 ✓');
+      }
+  }).catch(() => {});
 }, 15000);
 loadOverview();
 refreshSyncInfo();
