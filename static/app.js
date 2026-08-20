@@ -519,11 +519,15 @@ $('btn-sync-top').addEventListener('click', () => {
 function loadSettings() {
   API('/api/settings').then(d => {
     const sheets = Object.entries(d.sheets || {}).map(([k, v]) => `${esc(k)}: ${v}`).join('<br>');
+    const archived = (d.archived_sheets && d.archived_sheets.length)
+      ? d.archived_sheets.map(esc).join('、')
+      : '暂无';
     $('settings-content').innerHTML = `
       <p><b>数据源</b>：${esc(d.source)}</p>
       <p><b>本地数据库</b>：${esc(d.db_path)}</p>
       <p><b>状态过滤关键词（命中的条目不计入查询）</b>：<br>${d.resolved_keywords.map(esc).join('、')}</p>
-      <p><b>已同步分表</b>：<br>${sheets || '暂无'}</p>`;
+      <p><b>已同步分表</b>：<br>${sheets || '暂无'}</p>
+      <p><b>整表已归档（不计入任何统计）</b>：<br>${archived}</p>`;
   });
 }
 

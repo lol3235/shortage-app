@@ -13,7 +13,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         names = sys.argv[1:]
     else:
-        names = ["tests.test_core", "tests.test_api"]
+        names = ["tests.test_core", "tests.test_api", "tests.test_archive"]
     suite = unittest.TestLoader()
     all_suites = []
     for n in names:

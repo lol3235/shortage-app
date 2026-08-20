@@ -75,6 +75,9 @@ FILL_FORWARD_FIELDS = {"项目编码", "项目", "单据日期", "申请部门",
 # 日期/交期类列更敏感，仅在同一个单据编号内前向填充，避免跨单据污染
 DATE_LIKE_FIELDS = {"期望交期", "预计到货时间"}
 
+# 本次同步中检测到的「整表归档」子表名称（供前端/日志透明展示，便于核对规则是否误触发）
+ARCHIVED_SHEETS = []
+
 
 def _run_wecom(args, timeout=60):
     """用 cmd /c 调用 wecom-cli.cmd，隐藏窗口，避免黑窗。"""
@@ -146,24 +149,50 @@ def _fetch_sheet_csv(sheet_id, timeout=120, retry=3):
     raise last_err
 
 
+def _sheet_is_archived(header, ncols, norm_rows):
+    """判断子表是否「整表归档」：扫描表尾行，若存在「无有效物料编码」且文本含「已归档」的页脚行即命中。
+
+    页脚行特征（区别于普通数据行）：物料编码列为空或不满足物料编码格式。
+    这样不会把「逐行标注已归档」的正常数据行（物料编码列有效）误判为整表归档。
+    仅在表尾 15 行内扫描，匹配用户「分表后面标注已归档」的语义，并降低误触发概率。
+    """
+    mc_idx = -1
+    for j, h in enumerate(header[:ncols]):
+        if h == "物料编码":
+            mc_idx = j
+            break
+    if mc_idx < 0:
+        return False  # 无物料编码列的子表本身不产生条目，无需归档判定
+    tail = norm_rows[-15:] if len(norm_rows) > 15 else norm_rows
+    for r in tail:
+        mc = r[mc_idx].strip() if mc_idx < len(r) else ""
+        if _is_material_code(mc):
+            continue  # 普通数据行，跳过
+        if "已归档" in "".join(r):
+            return True
+    return False
+
+
 def _csv_to_markdown(sheet_title, csv_text):
     """将单子表 CSV 转成 markdown 表格，复用 parse_markdown 的解析逻辑。
 
     输入：子表标题 + wecom-cli sheet ranges get --mode csv 返回的 content 字段。
-    输出：markdown 字符串（首行为子表标题，后续为表格）。
+    输出：(markdown 字符串, archived 布尔)。markdown 首行为子表标题，后续为表格；
+    若整表归档，则所有数据行的「状态」改写为「已归档」，由下游 filter_active 统一过滤
+    （与「逐行标注已归档」走同一套查询期过滤逻辑，行为一致、可逆：去掉页脚即恢复）。
 
     CSV 解析用 Python 标准 csv 模块，支持：
     - 双引号包裹的字段（含逗号、换行、引号）
     - 双引号转义（"" 表示一个 "）
     """
     if not csv_text.strip():
-        return ""
+        return "", False
     # wecom-cli 返回的 CSV 已经是 RFC 4180 标准格式，csv 模块可正确解析
     reader = csv.reader(io.StringIO(csv_text))
     rows = [r for r in reader if r]  # 过滤空行
 
     if not rows:
-        return ""
+        return "", False
 
     # 找列头行：含 "物料编码" 且含 欠料数量 候选
     header_idx = -1
@@ -174,7 +203,7 @@ def _csv_to_markdown(sheet_title, csv_text):
             break
     if header_idx < 0:
         # 找不到表头行（极少见：子表全空或格式特殊），整块跳过
-        return ""
+        return "", False
 
     header = rows[header_idx]
     # 真实列数 = 表头中非空 cell 数。处理 0810 类「表头后段全空」sheet：
@@ -213,6 +242,26 @@ def _csv_to_markdown(sheet_title, csv_text):
             r = r + [""] * (ncols - len(r))
         norm_rows.append(r)
 
+    # --- 整表归档检测（v1.6.4）：子表末尾出现「已归档」页脚行，则整表不计入统计 ---
+    # 命中后把该子表所有数据行的「状态」改写为「已归档」，复用 filter_active 统一过滤，
+    # 与「逐行标注已归档」走同一套查询期过滤逻辑，行为一致、可逆（去掉页脚即恢复）。
+    archived = _sheet_is_archived(header, ncols, norm_rows)
+    if archived:
+        st_idx = -1
+        for j, h in enumerate(header[:ncols]):
+            if h in ("状态", "处理状态", "进度", "是否解决", "解决状态"):
+                st_idx = j
+                break
+        if st_idx >= 0:
+            norm_rows = [[("已归档" if j == st_idx else c) for j, c in enumerate(r)]
+                         for r in norm_rows]
+            print("[sync] 子表 %r 检测到整表归档页脚，整表 %d 行标记为已归档（不计入任何统计）"
+                  % (sheet_title, len(norm_rows)))
+        else:
+            # 无状态列时无法标记，整表直接排除（不入库）
+            print("[sync] 子表 %r 整表归档但无状态列，整表排除（不入库）" % sheet_title)
+            return "", True
+
     lines = [sheet_title]
     # 用安全的转义：把 markdown 表格中的 | 转义为 \|，避免字段值里的 | 破坏表格结构
     def _esc(v):
@@ -221,7 +270,7 @@ def _csv_to_markdown(sheet_title, csv_text):
     lines.append("|" + "|".join(["---"] * ncols) + "|")
     for r in norm_rows:
         lines.append("| " + " | ".join(_esc(c) for c in r) + " |")
-    return "\n".join(lines)
+    return "\n".join(lines), archived
 
 
 def fetch_markdown(max_retry=2, inter_sheet_delay=1.5):
@@ -231,8 +280,10 @@ def fetch_markdown(max_retry=2, inter_sheet_delay=1.5):
     子表之间默认停顿 1.5s，避免触发企微的瞬时频率限制。
     单子表读取失败会内部重试 3 次，3 次都失败才跳过该子表继续。
     返回 markdown 字符串，与旧版同接口兼容，parse_markdown 不用改。
+    同时把检测到的「整表归档」子表名收集到 ARCHIVED_SHEETS，供前端/日志透明展示。
     """
     last_err = None
+    ARCHIVED_SHEETS.clear()
     for attempt in range(1, max_retry + 1):
         try:
             sheets = _list_sheets()
@@ -252,7 +303,9 @@ def fetch_markdown(max_retry=2, inter_sheet_delay=1.5):
                     print("[sync] 子表 %s(%s) 跳过: %s" % (title, sid, e))
                     failed_sids.append(sid)
                     continue
-                md = _csv_to_markdown(title, csv)
+                md, archived = _csv_to_markdown(title, csv)
+                if archived:
+                    ARCHIVED_SHEETS.append(title)
                 if md:
                     md_chunks.append(md)
                     ok_sids.append(sid)
@@ -263,7 +316,8 @@ def fetch_markdown(max_retry=2, inter_sheet_delay=1.5):
                 raise RuntimeError("所有子表都为空/失败，无法解析（失败子表: %s）" % failed_sids)
             if failed_sids:
                 print("[sync] 警告：%d 个子表读取失败被跳过: %s" % (len(failed_sids), failed_sids))
-            print("[sync] 成功拉取 %d/%d 个子表" % (len(ok_sids), len(sheets)))
+            print("[sync] 成功拉取 %d/%d 个子表；整表归档 %d 个：%s"
+                  % (len(ok_sids), len(sheets), len(ARCHIVED_SHEETS), ARCHIVED_SHEETS))
             return "\n\n".join(md_chunks)
         except Exception as e:
             last_err = e
@@ -495,6 +549,8 @@ def sync_to_db(offline_md=None, db_path=None):
     """
     if db_path is None:
         db_path = db.DEFAULT_DB
+    # 每条同步开始时重置（覆盖 offline 路径不会调用 fetch_markdown 的情况）
+    ARCHIVED_SHEETS.clear()
     if offline_md:
         md = open(offline_md, encoding="utf-8", errors="replace").read()
     elif _use_api_mode():
@@ -526,6 +582,12 @@ def sync_to_db(offline_md=None, db_path=None):
     except Exception as e:
         # 快照/新增记录失败不影响主同步，仅打印日志
         print("[sync] 新增快照记录失败: %s" % e)
+
+    # --- 持久化「整表归档」子表名单，供前端透明展示 / 核对是否误触发 ---
+    try:
+        db.set_meta("archived_sheets", json.dumps(ARCHIVED_SHEETS, ensure_ascii=False), path=db_path)
+    except Exception as e:
+        print("[sync] archived_sheets 持久化失败（不影响主同步）: %s" % e)
 
     return len(items), synced_at
 

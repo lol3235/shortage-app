@@ -81,6 +81,20 @@ def _conn(path=DEFAULT_DB):
     return conn
 
 
+def set_meta(key, value, path=DEFAULT_DB):
+    """写入/覆盖一条 meta 配置（key/value）。"""
+    conn = _conn(path)
+    try:
+        conn.execute(
+            "INSERT INTO meta(key, value) VALUES(?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def upsert_items(items, synced_at=None, path=DEFAULT_DB):
     """清空并批量写入（v1 简单可靠：整表替换）。事务提交，失败回滚保留旧数据。"""
     if synced_at is None:

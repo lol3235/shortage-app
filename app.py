@@ -97,6 +97,18 @@ def _load_active():
     return logic.filter_active(db.get_all(DB_PATH))
 
 
+def _parse_archived(raw):
+    """把 meta 里归档分表的 JSON 字符串解析成列表（容错）。"""
+    if not raw:
+        return []
+    try:
+        import json as _json
+        v = _json.loads(raw)
+        return v if isinstance(v, list) else []
+    except Exception:
+        return []
+
+
 def _update_sync_state():
     meta = db.get_meta(DB_PATH)
     sync_state["last_sync"] = meta.get("last_sync")
@@ -174,7 +186,9 @@ def api_eta(kw):
 def api_sync_status():
     with _sync_lock:
         st = dict(sync_state)
-    st["db_last_sync"] = db.get_meta(DB_PATH).get("last_sync")
+    meta = db.get_meta(DB_PATH)
+    st["db_last_sync"] = meta.get("last_sync")
+    st["archived_sheets"] = _parse_archived(meta.get("archived_sheets"))
     return st
 
 
@@ -185,6 +199,7 @@ def api_settings():
         "db_path": DB_PATH,
         "resolved_keywords": list(logic.RESOLVED_KEYWORDS),
         "sheets": meta.get("sheets", {}),
+        "archived_sheets": _parse_archived(meta.get("archived_sheets")),
     }
 
 
