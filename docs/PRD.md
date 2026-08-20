@@ -2,7 +2,7 @@
 
 > 版本：v1.6.3
 > 日期：2026-08-19
-> 状态：已上线（本地 APP + 云端 Render 双形态运行；功能持续迭代中；新增钣金欠料独立模块；UI 接入壹月科技品牌 VI + 毛玻璃；v1.6.2 修复 wecom-cli 升级后的同步断链）
+> 状态：已上线（本地 APP + 云端 Render 双形态运行；功能持续迭代中；新增钣金欠料独立模块；UI 接入壹月科技品牌 VI + 毛玻璃；v1.6.5 修复 Render 跨平台同步崩溃）
 
 ---
 
@@ -259,6 +259,7 @@
 - 云端无 wecom-cli / 企微登录态，启动时从 `seed.sql` 初始化（含 `meta.last_sync` / `last_count`，故云端能显示「上次同步时间」）。
 - 单实例保护：Windows 命名互斥体 `Global\ShortageAppSingleton`，防重复实例互相干扰。
 - 可插拔数据源：配置 `WECOM_API_CORP_ID/SECRET/TABLE_DOCID` 时云端可直连企微 API；未配置则回退 wecom-cli（本地）。
+- **跨平台兼容（v1.6.5）**：所有 `subprocess.run` 调用仅在 Windows 上传 `CREATE_NO_WINDOW`；Linux/macOS（Render）不再因 `creationflags` 参数崩溃。云端未配置 API 且未检测到 wecom-cli 时，`sync.can_sync_online()` 返回 `False`，前端显示「快照模式」提示，禁止无效重试。
 
 ### 9.3 已知限制
 - 云端数据实时性依赖本地进程常开 + 自动推送；本地关机期间云端数据为最近一次快照。

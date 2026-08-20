@@ -5,6 +5,21 @@
 
 ---
 
+## v1.6.5 · 2026-08-20 · 修复 Render 云端同步失败（creationflags 跨平台兼容）
+
+| 提交 | 类型 | 说明 |
+|---|---|---|
+| 修复 | 跨平台 | **彻底解决 Render(Linux) 上 `creationflags is only supported on Windows platforms` 报错** —— `sync.py`、钣金 `sync_sheetmetal.py`、`app.py` 的 git 调用全部改为仅在 `sys.platform == "win32"` 时传 `CREATE_NO_WINDOW`，非 Windows 平台不再硬编码 `creationflags`，从源头消除平台差异导致的同步崩溃 |
+| 改进 | 同步 | **云端友好降级**：`sync.can_sync_online()` 公共函数判断当前是否具备在线同步能力（本地 wecom-cli 或企微 API 凭证）。`sync_to_db()` 与 `app.do_sync()` 在无法在线同步时直接返回可读中文提示，告知用户「当前为 seed.sql 快照模式，需本地 Windows app 自动同步或配置 WECOM_API 凭证」，不再弹出技术性英文报错 |
+| 改进 | UI | `api_sync_status` 新增 `syncable` 字段；前端告警横幅在 `syncable=false` 时隐藏「立即重试」按钮，并附加「当前为快照模式」提示，避免用户在云端反复点击重试 |
+
+### 根因说明
+- Render 云端是 Linux，没有 `wecom-cli.cmd`，也没有企业微信桌面登录态，本就不该执行在线同步。
+- 之前代码把所有 `subprocess.run` 都加了 `creationflags=CREATE_NO_WINDOW`（Windows 专属参数），导致 Linux 上只要触发同步就立即崩溃。
+- 修复后：本地 Windows 仍隐藏黑窗；云端 Render 会给出明确提示，数据继续用本地 app 推送的 `seed.sql` 快照。
+
+---
+
 ## v1.6.4 · 2026-08-20 · 新增「整表归档」规则：分表末尾标注已归档则整表不统计
 
 | 提交 | 类型 | 说明 |
