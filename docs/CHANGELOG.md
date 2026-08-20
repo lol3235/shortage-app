@@ -5,18 +5,21 @@
 
 ---
 
-## v1.6.5 · 2026-08-20 · 修复 Render 云端同步失败（creationflags 跨平台兼容）
+## v1.6.5 · 2026-08-20 · 修复同步失败：失效代理清理 + Render 跨平台兼容 + 子表列表重试
 
 | 提交 | 类型 | 说明 |
 |---|---|---|
+| 修复 | 环境兼容 | **自动清理失效代理环境变量** —— 新增 `sync._clean_env_for_subprocess()`，调用 wecom-cli / kdocs-cli / git 前检测 `HTTP_PROXY/HTTPS_PROXY/ALL_PROXY` 指向的端口是否可连；若代理已死（常见如 `127.0.0.1:7897` 遗留环境变量），自动剔除这些变量再执行外部命令。一次性解决「因本地残留代理设置导致 wecom-cli 连企微被拒绝、git push 连 GitHub 失败」的问题 |
 | 修复 | 跨平台 | **彻底解决 Render(Linux) 上 `creationflags is only supported on Windows platforms` 报错** —— `sync.py`、钣金 `sync_sheetmetal.py`、`app.py` 的 git 调用全部改为仅在 `sys.platform == "win32"` 时传 `CREATE_NO_WINDOW`，非 Windows 平台不再硬编码 `creationflags`，从源头消除平台差异导致的同步崩溃 |
+| 改进 | 同步 | **增强 `_list_sheets` 重试**：子表列表接口同样加入 3 次退避重试（2s/4s/8s），并把 `fetch_markdown` 默认整体重试次数提到 3 次、子表间隔提到 2.0s，进一步降低偶发限流导致同步失败的概率 |
 | 改进 | 同步 | **云端友好降级**：`sync.can_sync_online()` 公共函数判断当前是否具备在线同步能力（本地 wecom-cli 或企微 API 凭证）。`sync_to_db()` 与 `app.do_sync()` 在无法在线同步时直接返回可读中文提示，告知用户「当前为 seed.sql 快照模式，需本地 Windows app 自动同步或配置 WECOM_API 凭证」，不再弹出技术性英文报错 |
 | 改进 | UI | `api_sync_status` 新增 `syncable` 字段；前端告警横幅在 `syncable=false` 时隐藏「立即重试」按钮，并附加「当前为快照模式」提示，避免用户在云端反复点击重试 |
 
-### 根因说明
-- Render 云端是 Linux，没有 `wecom-cli.cmd`，也没有企业微信桌面登录态，本就不该执行在线同步。
-- 之前代码把所有 `subprocess.run` 都加了 `creationflags=CREATE_NO_WINDOW`（Windows 专属参数），导致 Linux 上只要触发同步就立即崩溃。
-- 修复后：本地 Windows 仍隐藏黑窗；云端 Render 会给出明确提示，数据继续用本地 app 推送的 `seed.sql` 快照。
+### 根因说明（本次截图错误的真实原因）
+- 表面上看是 `creationflags is only supported on Windows platforms`，说明请求落在了 Render（Linux）云端；但本地也曾频繁出现 `rc=1` 同步失败。
+- 深入排查后发现：`rc=1` 并非企微频率限制，而是 wecom-cli 尝试通过环境变量里的 `HTTP_PROXY/HTTPS_PROXY=127.0.0.1:7897` 连接企微 API，但该代理端口并未运行 → `ConnectionRefused`。
+- 同一批失效代理环境变量也导致 git push 到 GitHub 失败（`Failed to connect to github.com over proxy`）。
+- 修复后：调用任何外部命令前都会自动清理不可用的代理变量；本地 Windows 仍隐藏黑窗；云端 Render 会给出明确提示，数据继续用本地 app 推送的 `seed.sql` 快照。
 
 ---
 

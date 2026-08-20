@@ -259,6 +259,7 @@
 - 云端无 wecom-cli / 企微登录态，启动时从 `seed.sql` 初始化（含 `meta.last_sync` / `last_count`，故云端能显示「上次同步时间」）。
 - 单实例保护：Windows 命名互斥体 `Global\ShortageAppSingleton`，防重复实例互相干扰。
 - 可插拔数据源：配置 `WECOM_API_CORP_ID/SECRET/TABLE_DOCID` 时云端可直连企微 API；未配置则回退 wecom-cli（本地）。
+- **失效代理自动清理（v1.6.5）**：调用 wecom-cli / kdocs-cli / git 前，由 `sync._clean_env_for_subprocess()` 检测并剔除指向不可用端口的 `HTTP_PROXY/HTTPS_PROXY/ALL_PROXY`，避免旧代理软件遗留环境变量导致外部命令连不上企微/GitHub。
 - **跨平台兼容（v1.6.5）**：所有 `subprocess.run` 调用仅在 Windows 上传 `CREATE_NO_WINDOW`；Linux/macOS（Render）不再因 `creationflags` 参数崩溃。云端未配置 API 且未检测到 wecom-cli 时，`sync.can_sync_online()` 返回 `False`，前端显示「快照模式」提示，禁止无效重试。
 
 ### 9.3 已知限制
