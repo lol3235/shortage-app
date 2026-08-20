@@ -152,9 +152,13 @@ def _fetch_sheet_csv(sheet_id, timeout=120, retry=3):
 def _sheet_is_archived(header, ncols, norm_rows):
     """判断子表是否「整表归档」：扫描表尾行，若存在「无有效物料编码」且文本含「已归档」的页脚行即命中。
 
-    页脚行特征（区别于普通数据行）：物料编码列为空或不满足物料编码格式。
-    这样不会把「逐行标注已归档」的正常数据行（物料编码列有效）误判为整表归档。
-    仅在表尾 15 行内扫描，匹配用户「分表后面标注已归档」的语义，并降低误触发概率。
+    页脚行特征（区别于普通数据行）：物料编码列为空或不满足物料编码格式，且整行几乎为空
+    （非空白单元格 ≤ 3 个，仅承载「已归档」注解）。
+
+    这样不会把「逐行标注已归档」的正常数据行（物料编码列有效）误判，
+    也不会把「物料编码列因合并单元格走漏而变空、但其余列仍填满」的逐行已归档数据行误判为整表归档
+    （这类行非空白单元格远多于 3 个）。仅在表尾 15 行内扫描，匹配用户
+    「分表后面标注已归档」的语义，并进一步降低误触发概率。
     """
     mc_idx = -1
     for j, h in enumerate(header[:ncols]):
@@ -167,8 +171,12 @@ def _sheet_is_archived(header, ncols, norm_rows):
     for r in tail:
         mc = r[mc_idx].strip() if mc_idx < len(r) else ""
         if _is_material_code(mc):
-            continue  # 普通数据行，跳过
-        if "已归档" in "".join(r):
+            continue  # 普通数据行（含有效物料编码的逐行已归档行），跳过
+        non_empty = [c.strip() for c in r if c.strip()]
+        if not non_empty:
+            continue  # 全空行（表尾间隔行），跳过
+        # 必须是「页脚注解」性质：几乎为空，仅含「已归档」
+        if len(non_empty) <= 3 and any("已归档" in c for c in non_empty):
             return True
     return False
 

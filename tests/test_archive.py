@@ -73,6 +73,24 @@ class TestSheetArchive(unittest.TestCase):
         md, archived = sync._csv_to_markdown("误触测试", csv)
         self.assertFalse(archived)
 
+    def test_footer_merged_cell_leak_not_archived(self):
+        """整表归档守卫（non_empty ≤ 3）：物料编码列因合并单元格走漏变空、
+
+        但其余列仍填满（非空白单元格远多于 3 个）、状态列写「已归档」的逐行已归档
+        数据行，绝不能误判为整表归档。这是 v1.6.4 加固要防的误触发源。
+        """
+        data = _data_rows()
+        # 构造一条「走漏」行：物料编码为空，其余列填满，状态=已归档
+        leak_row = ["测试项目", "P100", "", "阀门", "富士金", "DN15",
+                    "5", "2026-08-20", "2026-08-15", "已归档"]
+        csv = _build_csv(HEADER, data, footer=leak_row)
+        md, archived = sync._csv_to_markdown("走漏误触", csv)
+        self.assertFalse(archived)
+        items = sync.parse_markdown(md)
+        # 2 条真实数据行保留，走漏行（无有效物料编码）不计入
+        self.assertEqual(len(items), 2)
+        self.assertEqual(len(logic.filter_active(items)), 2)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
