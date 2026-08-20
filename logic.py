@@ -16,7 +16,10 @@ RESOLVED_KEYWORDS = ("已解决", "归档", "已完成", "完成", "已关闭", 
 
 def is_resolved(item):
     s = (item.get("状态") or "").strip()
-    return bool(s and any(k in s for k in RESOLVED_KEYWORDS))
+    if s and any(k in s for k in RESOLVED_KEYWORDS) and "未归档" not in s:
+        return True
+    # 行内任意单元格含「已归档」完整标记也视为归档（覆盖非状态列标注场景）
+    return any("已归档" in str(v) for v in item.values())
 
 
 def filter_active(items):

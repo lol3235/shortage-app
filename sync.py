@@ -230,6 +230,11 @@ def _fetch_sheet_csv(sheet_id, timeout=120, retry=3):
     raise last_err
 
 
+def _sheet_title_is_archived(title):
+    """子表标题（名称）含『已归档』即整表跳过，不抓取、不统计。"""
+    return "已归档" in (title or "")
+
+
 def _sheet_is_archived(header, ncols, norm_rows):
     """判断子表是否「整表归档」：扫描表尾行，若存在「无有效物料编码」且文本含「已归档」的页脚行即命中。
 
@@ -384,6 +389,10 @@ def fetch_markdown(max_retry=3, inter_sheet_delay=2.0):
                 title = s.get("title") or sid or "未命名子表"
                 if not sid:
                     print("[sync] 跳过无 sheet_id 的子表: %s" % s)
+                    continue
+                if _sheet_title_is_archived(title):
+                    print("[sync] 子表 %r 名称含『已归档』，整表跳过（不抓取/不统计）" % title)
+                    ARCHIVED_SHEETS.append(title)
                     continue
                 try:
                     csv = _fetch_sheet_csv(sid)

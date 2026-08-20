@@ -92,5 +92,25 @@ class TestSheetArchive(unittest.TestCase):
         self.assertEqual(len(logic.filter_active(items)), 2)
 
 
+    def test_sheet_title_archived_skipped(self):
+        """子表名称含『已归档』整表跳过（不抓取/不统计）。"""
+        self.assertTrue(sync._sheet_title_is_archived("巨茂报告（已归档）"))
+        self.assertTrue(sync._sheet_title_is_archived("已归档"))
+        self.assertFalse(sync._sheet_title_is_archived("巨茂第三批59台20260804"))
+        self.assertFalse(sync._sheet_title_is_archived(None))
+        self.assertFalse(sync._sheet_title_is_archived(""))
+
+    def test_row_archived_in_non_status_cell(self):
+        """非状态列含『已归档』完整标记 -> 该行跳过（覆盖逐行任意列标注）。"""
+        item = {"状态": "", "项目": "X", "物料名称": "阀门", "备注": "已归档"}
+        self.assertTrue(logic.is_resolved(item))
+        # 状态列正常、其他列无已归档 -> 不跳过
+        item2 = {"状态": "跟进中", "备注": "正常"}
+        self.assertFalse(logic.is_resolved(item2))
+        # 「未归档」不应误判为已归档
+        item3 = {"状态": "未归档"}
+        self.assertFalse(logic.is_resolved(item3))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
