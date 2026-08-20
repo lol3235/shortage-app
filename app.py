@@ -130,13 +130,9 @@ def do_sync():
         sync_state["error"] = None
     try:
         if not sync.can_sync_online():
-            raise RuntimeError(
-                "当前环境无法在线同步企业微信欠料表：未配置企微开放 API 凭证，"
-                "且未检测到 wecom-cli（仅本地 Windows 可用）。"
-                "云端 Render 显示的是最近一次本地同步推送的 seed.sql 快照。"
-                "请保持本地 Windows app 运行以自动同步，或在 Render 环境变量中配置 "
-                "WECOM_API_CORP_ID、WECOM_API_CORP_SECRET、WECOM_TABLE_DOCID。"
-            )
+            # 云端 Render 无 wecom-cli、也无企微 API 凭证时，属预期「快照模式」，不是故障。
+            # 返回 ok=False 且不写入 sync_state["error"]，避免前端把预期行为当成错误告警。
+            return {"ok": False, "message": "云端快照模式：数据由本地 Windows app 自动同步推送"}
         n, t = sync.sync_to_db(db_path=DB_PATH)
         with _sync_lock:
             sync_state["last_sync"] = t
@@ -205,6 +201,9 @@ def api_sync_status():
     st["db_last_sync"] = meta.get("last_sync")
     st["archived_sheets"] = _parse_archived(meta.get("archived_sheets"))
     st["syncable"] = sync.can_sync_online()
+    st["cloud"] = not st["syncable"]
+    if not st["syncable"]:
+        st["error"] = None  # 云端快照模式属预期，不作为故障告警
     return st
 
 

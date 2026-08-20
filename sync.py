@@ -82,11 +82,15 @@ def _clean_env_for_subprocess():
     本函数在调用外部命令前做一次清理，可一次性解决这类问题。
     """
     env = dict(os.environ)
+    removed = []
     for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
                 "http_proxy", "https_proxy", "all_proxy"):
         val = env.get(key, "")
         if val and not _proxy_is_alive(val):
             env.pop(key, None)
+            removed.append("%s=%s" % (key, val))
+    if removed:
+        print("[subprocess] 检测到失效代理，已清理: %s" % ", ".join(removed))
     return env
 
 

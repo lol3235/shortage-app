@@ -383,6 +383,12 @@ body {
   border-bottom-color: rgba(93, 210, 211, 0.6);
 }
 .alert-bar.show.syncing span { color: var(--brand-primary-darker); }
+.alert-bar.show.info {
+  background: var(--c-info-bg);
+  color: var(--c-info);
+  border-bottom-color: rgba(37, 99, 235, 0.4);
+}
+.alert-bar.show.info span { color: #1E40AF; }
 
 /* ==========================================================================
    页面切换过渡动画

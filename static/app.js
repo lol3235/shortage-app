@@ -475,11 +475,13 @@ $('btn-sm-sync').addEventListener('click', triggerSmSync);
 function updateAlertBar(d) {
   const bar = $('alert-bar');
   if (!bar) return;
-  if (d.error) {
+  if (!d.syncable) {
+    // 云端快照模式是预期行为（Render 无 wecom-cli），不是故障，显示中性说明
+    bar.className = 'alert-bar show info';
+    bar.innerHTML = `<strong>ℹ️ 云端快照模式</strong><span>数据由本地 Windows app 自动同步推送，最近更新于 ${esc(d.db_last_sync || d.last_sync || '未知')}。保持本地 app 运行即可实时更新；如需云端直连可配置企微 API 凭证。</span>`;
+  } else if (d.error) {
     bar.className = 'alert-bar show';
-    const retryBtn = d.syncable ? `<button onclick="triggerSync()">立即重试</button>` : '';
-    const snapshotNote = d.syncable ? '' : '<span style="opacity:.85">（当前为快照模式，需本地 Windows app 自动同步或配置企微 API）</span>';
-    bar.innerHTML = `<strong>⚠️ 数据同步失败，看板数据可能已过期</strong><span>${esc(d.error)}</span>${snapshotNote}${retryBtn}`;
+    bar.innerHTML = `<strong>⚠️ 数据同步失败，看板数据可能已过期</strong><span>${esc(d.error)}</span><button onclick="triggerSync()">立即重试</button>`;
   } else if (d.syncing) {
     bar.className = 'alert-bar show syncing';
     bar.innerHTML = `<strong>🔄 正在同步数据…</strong>`;
