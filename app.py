@@ -5,6 +5,7 @@
 访问：http://localhost:8765
 """
 import os
+import re
 import sys
 import json
 import time
@@ -495,11 +496,46 @@ def _git_push_seed():
                        **_win_subprocess_kwargs())
 
 
-def _export_and_check_seed(path, exporter, db_path):
-    """导出 seed 并比较 hash；返回是否有变化。"""
-    old = _file_hash(path)
+# seed.sql 中仅同步时间戳相关的模式：剔除后计算「业务签名」，
+# 时间戳变化不触发推送，业务数据变化才推送（避免每次同步都 commit/push）。
+_TS_RE = re.compile(r"'20\d{2}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}'")
+_META_RE = re.compile(r"-- (?:last_sync|rows)[^\n]*")
+
+
+def _biz_hash(text):
+    """剔除 synced_at / last_sync 时间戳后计算 seed 业务签名。
+
+    背景：export_seed_sql 每行携带 synced_at、注释携带 last_sync，
+    每次同步时间戳必变导致文件 hash 必变，旧逻辑（比较文件 hash）会
+    每次同步都 commit/push，GitHub 历史爆炸、Render 高频重部署。
+    这里只对业务字段（项目/物料/数量/状态等）算签名，签名变化才推送。
+    """
+    text = _TS_RE.sub("'__TS__'", text)
+    text = _META_RE.sub("-- __TS__", text)
+    return hashlib.md5(text.encode("utf-8")).hexdigest()
+
+
+def _export_and_check_seed(path, exporter, db_path, meta_key, sm=False):
+    """导出 seed，比较「业务签名」是否变化；并把签名持久化到对应 meta 表。
+
+    返回值 True = 业务数据有变化（需要 commit/push）；False = 仅时间戳变化。
+    签名存 meta：欠料库存 meta 表（meta_key=seed_biz_hash），
+    钣金库存 meta_sheetmetal 表（meta_key=sm_seed_biz_hash），进程重启不丢。
+    """
     exporter(db_path, path)
-    return old != _file_hash(path)
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return True  # 读不到文件按有变化处理，至少推一次
+    bh = _biz_hash(text)
+    if sm:
+        prev = db.get_sheetmetal_meta(db_path).get(meta_key)
+        db.set_sheetmetal_meta(meta_key, bh, path=db_path)
+    else:
+        prev = db.get_meta(db_path).get(meta_key)
+        db.set_meta(meta_key, bh, path=db_path)
+    return prev != bh
 
 
 def _auto_sync_loop():
@@ -521,14 +557,16 @@ def _auto_sync_loop():
             # —— 欠料（企业微信）——
             r1 = do_sync()
             if r1.get("ok"):
-                if _export_and_check_seed(SEED_PATH, db.export_seed_sql, DB_PATH):
+                if _export_and_check_seed(SEED_PATH, db.export_seed_sql, DB_PATH,
+                                          "seed_biz_hash"):
                     changed = True
             else:
                 print("[auto-sync] 欠料同步未成功: %s" % (r1.get("error") or r1.get("message")))
             # —— 钣金欠料（金山文档）——
             r2 = do_sync_sheetmetal()
             if r2.get("ok"):
-                if _export_and_check_seed(SHEETMETAL_SEED, db.export_sheetmetal_seed_sql, SHEETMETAL_DB):
+                if _export_and_check_seed(SHEETMETAL_SEED, db.export_sheetmetal_seed_sql,
+                                          SHEETMETAL_DB, "sm_seed_biz_hash", sm=True):
                     changed = True
             else:
                 print("[auto-sync] 钣金同步未成功: %s" % (r2.get("error") or r2.get("message")))

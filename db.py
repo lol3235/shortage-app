@@ -439,6 +439,20 @@ def get_sheetmetal_meta(path=SHEETMETAL_DB):
         conn.close()
 
 
+def set_sheetmetal_meta(key, value, path=SHEETMETAL_DB):
+    """写入/覆盖一条钣金库 meta 配置（meta_sheetmetal 表）。"""
+    conn = _conn(path)
+    try:
+        conn.execute(
+            "INSERT INTO meta_sheetmetal(key, value) VALUES(?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def export_sheetmetal_seed_sql(db_path=SHEETMETAL_DB, seed_path=None):
     """把 sheetmetal_items 与 meta_sheetmetal 导出为可重复执行的 INSERT SQL（供 Render 初始化）。"""
     if seed_path is None:

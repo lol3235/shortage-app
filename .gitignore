@@ -14,5 +14,6 @@ data/test_tmp.db
 _hermes_*.txt
 # 一次性/临时文件，不纳入版本库
 _bootstrap_sheetmetal.py
+data/verify_archive.py
 nul
 tmp_kdocs_read.json
