@@ -20,6 +20,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import db  # noqa: E402
 
+
+def _win_subprocess_kwargs():
+    """返回仅在 Windows 上可用的 subprocess 参数，避免 Linux/macOS 报错。"""
+    if sys.platform == "win32":
+        return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+    return {}
+
 KDOCS_FILE_ID = "HeqbtFcx3rMqYYFRpA9n1xZrPzbTeaL4X"
 KDOCS_URL = "https://www.kdocs.cn/l/csUkRQG8wIXk"
 KDOCS_CLI = os.environ.get("KDOCS_CLI", r"C:/Users/Apua/.local/bin/kdocs-cli.exe")
@@ -193,7 +200,7 @@ def fetch_via_kdocs_cli():
         try:
             p = subprocess.run(cmd, capture_output=True, text=True, timeout=120,
                                encoding="utf-8", errors="replace",
-                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                               **_win_subprocess_kwargs())
         except FileNotFoundError:
             raise RuntimeError("未找到 kdocs-cli（%s），请先安装并 `kdocs-cli auth login`" % KDOCS_CLI)
         if p.returncode != 0:

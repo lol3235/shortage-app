@@ -477,7 +477,9 @@ function updateAlertBar(d) {
   if (!bar) return;
   if (d.error) {
     bar.className = 'alert-bar show';
-    bar.innerHTML = `<strong>⚠️ 数据同步失败，看板数据可能已过期</strong><span>${esc(d.error)}</span><button onclick="triggerSync()">立即重试</button>`;
+    const retryBtn = d.syncable ? `<button onclick="triggerSync()">立即重试</button>` : '';
+    const snapshotNote = d.syncable ? '' : '<span style="opacity:.85">（当前为快照模式，需本地 Windows app 自动同步或配置企微 API）</span>';
+    bar.innerHTML = `<strong>⚠️ 数据同步失败，看板数据可能已过期</strong><span>${esc(d.error)}</span>${snapshotNote}${retryBtn}`;
   } else if (d.syncing) {
     bar.className = 'alert-bar show syncing';
     bar.innerHTML = `<strong>🔄 正在同步数据…</strong>`;

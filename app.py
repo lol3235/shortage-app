@@ -60,6 +60,13 @@ def _find_git():
 GIT_EXE = _find_git()
 
 
+def _win_subprocess_kwargs():
+    """返回仅在 Windows 上可用的 subprocess 参数，避免 Linux/macOS 报错。"""
+    if sys.platform == "win32":
+        return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+    return {}
+
+
 def _load_dotenv():
     """读取项目根目录 .env 文件（KEY=VALUE）注入环境变量，不依赖第三方库。"""
     env_path = os.path.join(HERE, ".env")
@@ -122,6 +129,14 @@ def do_sync():
         sync_state["syncing"] = True
         sync_state["error"] = None
     try:
+        if not sync.can_sync_online():
+            raise RuntimeError(
+                "当前环境无法在线同步企业微信欠料表：未配置企微开放 API 凭证，"
+                "且未检测到 wecom-cli（仅本地 Windows 可用）。"
+                "云端 Render 显示的是最近一次本地同步推送的 seed.sql 快照。"
+                "请保持本地 Windows app 运行以自动同步，或在 Render 环境变量中配置 "
+                "WECOM_API_CORP_ID、WECOM_API_CORP_SECRET、WECOM_TABLE_DOCID。"
+            )
         n, t = sync.sync_to_db(db_path=DB_PATH)
         with _sync_lock:
             sync_state["last_sync"] = t
@@ -189,6 +204,7 @@ def api_sync_status():
     meta = db.get_meta(DB_PATH)
     st["db_last_sync"] = meta.get("last_sync")
     st["archived_sheets"] = _parse_archived(meta.get("archived_sheets"))
+    st["syncable"] = sync.can_sync_online()
     return st
 
 
@@ -430,7 +446,7 @@ def _run_git(cmd, check=True):
     real_cmd = [GIT_EXE] + cmd[1:]
     r = subprocess.run(real_cmd, cwd=HERE, capture_output=True, text=True,
                        encoding="utf-8", errors="replace",
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                       **_win_subprocess_kwargs())
     if check and r.returncode != 0:
         raise RuntimeError("git %s failed: %s" % (cmd[1], r.stderr or r.stdout))
     return r
@@ -453,7 +469,7 @@ def _git_push_seed():
             [GIT_EXE, "commit", "-m", msg, "data/seed.sql", "data/seed_sheetmetal.sql"],
             cwd=HERE, capture_output=True, text=True,
             encoding="utf-8", errors="replace",
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            **_win_subprocess_kwargs())
         if commit_r.returncode != 0:
             out = (commit_r.stdout + commit_r.stderr).lower()
             if "nothing to commit" in out or "no changes" in out:
@@ -467,10 +483,10 @@ def _git_push_seed():
             e, GIT_EXE, os.environ.get("PATH", "")[:300]))
     finally:
         # 推送完成后恢复不含 token 的 remote URL
-        # 必须带 CREATE_NO_WINDOW，否则会弹出黑窗（git.exe 是控制台程序）
+        # Windows 下带 CREATE_NO_WINDOW，避免弹出黑窗（git.exe 是控制台程序）
         subprocess.run([GIT_EXE, "remote", "set-url", "origin", GITHUB_REPO],
                        cwd=HERE, capture_output=True,
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                       **_win_subprocess_kwargs())
 
 
 def _export_and_check_seed(path, exporter, db_path):

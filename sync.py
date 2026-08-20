@@ -49,6 +49,23 @@ WECOM_CMD = _detect_wecom_cli()
 SYSTEM_CMD = r"C:\Windows\System32\cmd.exe"
 CREATE_NO_WINDOW = 0x08000000
 
+
+def _win_subprocess_kwargs():
+    """返回仅在 Windows 上可用的 subprocess 参数，避免在 Linux/macOS 上报错。"""
+    if sys.platform == "win32":
+        return {"creationflags": CREATE_NO_WINDOW}
+    return {}
+
+
+def can_sync_online():
+    """当前环境是否可以在线拉取企微欠料表（本地 wecom-cli 或云端 API 凭证）。"""
+    if _use_api_mode():
+        return True
+    if sys.platform != "win32":
+        return False
+    return os.path.exists(WECOM_CMD)
+
+
 # 逻辑字段 -> 候选列名（按优先级），用于适配不同子表的表头差异
 COL_ALIASES = {
     "项目": ["项目", "项目名称", "申请部门", "领用车间"],
@@ -80,12 +97,16 @@ ARCHIVED_SHEETS = []
 
 
 def _run_wecom(args, timeout=60):
-    """用 cmd /c 调用 wecom-cli.cmd，隐藏窗口，避免黑窗。"""
+    """用 cmd /c 调用 wecom-cli.cmd，隐藏窗口，避免黑窗。
+
+    非 Windows 平台不强行传 creationflags，否则 subprocess 直接抛
+    "creationflags is only supported on Windows platforms"。
+    """
     cmd = [SYSTEM_CMD, "/c", WECOM_CMD] + args
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
                            encoding="utf-8", errors="replace",
-                           creationflags=CREATE_NO_WINDOW, stdin=subprocess.DEVNULL)
+                           stdin=subprocess.DEVNULL, **_win_subprocess_kwargs())
     except Exception as e:
         r = type('R', (), {'returncode': -1, 'stdout': '', 'stderr': str(e)})()
     try:
@@ -559,6 +580,14 @@ def sync_to_db(offline_md=None, db_path=None):
         db_path = db.DEFAULT_DB
     # 每条同步开始时重置（覆盖 offline 路径不会调用 fetch_markdown 的情况）
     ARCHIVED_SHEETS.clear()
+    if not offline_md and not can_sync_online():
+        raise RuntimeError(
+            "当前环境无法在线同步企业微信欠料表：未配置企微开放 API 凭证，"
+            "且未检测到 wecom-cli（仅本地 Windows 可用）。"
+            "云端 Render 显示的是最近一次本地同步推送的 seed.sql 快照。"
+            "如需云端实时同步，请在 Render 环境变量中配置 WECOM_API_CORP_ID、"
+            "WECOM_API_CORP_SECRET、WECOM_TABLE_DOCID。"
+        )
     if offline_md:
         md = open(offline_md, encoding="utf-8", errors="replace").read()
     elif _use_api_mode():
