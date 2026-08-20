@@ -502,6 +502,32 @@ body {
   margin-top: 6px;
   font-weight: 500;
 }
+.card .sheet-names {
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--c-text-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 4.8em;
+  overflow: hidden;
+}
+.card .sheet-name {
+  display: inline-block;
+  padding: 1px 7px;
+  background: rgba(35, 186, 187, 0.10);
+  border: 1px solid rgba(35, 186, 187, 0.22);
+  border-radius: 10px;
+  color: var(--brand-primary-darker);
+  white-space: nowrap;
+}
+.card .sheet-name.muted {
+  background: transparent;
+  border-color: transparent;
+  color: var(--c-text-4);
+  padding: 0;
+}
 .card.card-accent::before { background: var(--g-accent); }
 .card.card-accent .num { color: var(--brand-accent-dark); }
 

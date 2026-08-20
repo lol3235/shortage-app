@@ -77,12 +77,14 @@ def overview(items):
         by_project[proj]["count"] += 1
         by_project[proj]["sheets"][i.get("sheet") or "未知"] += 1
     urgent = sum(by_status.get(s, 0) for s in ("空白", "无交期", "付款瓶颈"))
-    sheets = len(set(i.get("sheet") for i in items if i.get("sheet")))
+    sheet_names = sorted(set(i.get("sheet") for i in items if i.get("sheet")))
+    sheets = len(sheet_names)
     return {
         "total": len(items),
         "total_qty": sum(int(i.get("欠料数量") or 0) for i in items),
         "urgent": urgent,
         "sheets": sheets,
+        "sheet_names": sheet_names,
         "by_status": dict(by_status),
         "by_project": sorted(
             [{"project": p, "count": info["count"], "sheets": _fmt_sheets(info["sheets"])}
