@@ -18,6 +18,8 @@ import subprocess
 import time
 import csv
 import io
+import socket
+from urllib.parse import urlparse
 from collections import Counter, defaultdict
 
 import db
@@ -55,6 +57,37 @@ def _win_subprocess_kwargs():
     if sys.platform == "win32":
         return {"creationflags": CREATE_NO_WINDOW}
     return {}
+
+
+def _proxy_is_alive(proxy_url):
+    """检测代理 URL 是否真正可连接（避免环境变量里遗留失效代理导致外部命令连不上网）。"""
+    if not proxy_url:
+        return False
+    try:
+        p = urlparse(proxy_url.strip())
+        host = p.hostname or "127.0.0.1"
+        port = p.port or (443 if p.scheme == "https" else 80)
+        with socket.create_connection((host, port), timeout=1):
+            return True
+    except Exception:
+        return False
+
+
+def _clean_env_for_subprocess():
+    """复制当前环境变量，并剔除指向不可用端口的 HTTP/HTTPS/ALL_PROXY。
+
+    很多用户机器上残留着旧代理软件设置的环境变量（如 127.0.0.1:7897），
+    但该代理并未运行；外部命令（wecom-cli / git / kdocs-cli）默认会走这些代理，
+    结果出现 "ConnectionRefused" / "Failed to connect to github.com over proxy" 等报错。
+    本函数在调用外部命令前做一次清理，可一次性解决这类问题。
+    """
+    env = dict(os.environ)
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+                "http_proxy", "https_proxy", "all_proxy"):
+        val = env.get(key, "")
+        if val and not _proxy_is_alive(val):
+            env.pop(key, None)
+    return env
 
 
 def can_sync_online():
@@ -101,12 +134,15 @@ def _run_wecom(args, timeout=60):
 
     非 Windows 平台不强行传 creationflags，否则 subprocess 直接抛
     "creationflags is only supported on Windows platforms"。
+    同时清理失效代理环境变量，避免 wecom-cli 走不可用的本地代理。
     """
     cmd = [SYSTEM_CMD, "/c", WECOM_CMD] + args
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
                            encoding="utf-8", errors="replace",
-                           stdin=subprocess.DEVNULL, **_win_subprocess_kwargs())
+                           stdin=subprocess.DEVNULL,
+                           env=_clean_env_for_subprocess(),
+                           **_win_subprocess_kwargs())
     except Exception as e:
         r = type('R', (), {'returncode': -1, 'stdout': '', 'stderr': str(e)})()
     try:
@@ -118,24 +154,44 @@ def _run_wecom(args, timeout=60):
     return r
 
 
-def _list_sheets(timeout=90):
-    """列出欠料表所有子表 (sheet_id, title, row_count, column_count)。"""
-    r = _run_wecom(["sheet", "get", "--docid", SHORTAGE_URL], timeout=timeout)
-    if r.returncode != 0 or not (r.stdout or "").strip():
-        raise RuntimeError("获取子表列表失败: rc=%s err=%s" % (
-            r.returncode, (r.stderr or "")[:200]))
-    try:
-        data = json.loads(r.stdout)
-    except Exception as e:
-        raise RuntimeError("子表列表响应解析异常: %s | 原始=%s" % (
-            e, (r.stdout or "")[:300]))
-    if data.get("errcode", 0) != 0:
-        raise RuntimeError("子表列表接口错误: errcode=%s errmsg=%s" % (
-            data.get("errcode"), data.get("errmsg")))
-    sheets = data.get("sheets") or []
-    if not sheets:
-        raise RuntimeError("欠料表无子表可读（sheets 为空）")
-    return sheets
+def _list_sheets(timeout=90, retry=3):
+    """列出欠料表所有子表 (sheet_id, title, row_count, column_count)。
+
+    对 rc=1 等企微频率限制做 retry 次退避重试（2s/4s/8s），避免偶发限流导致整次同步失败。
+    """
+    last_err = None
+    for attempt in range(1, retry + 1):
+        r = _run_wecom(["sheet", "get", "--docid", SHORTAGE_URL], timeout=timeout)
+        if r.returncode == 0 and (r.stdout or "").strip():
+            try:
+                data = json.loads(r.stdout)
+            except Exception as e:
+                last_err = RuntimeError("子表列表响应解析异常: %s | 原始=%s" % (
+                    e, (r.stdout or "")[:300]))
+                time.sleep(2 * attempt)
+                continue
+            if data.get("errcode", 0) == 0:
+                sheets = data.get("sheets") or []
+                if sheets:
+                    return sheets
+                raise RuntimeError("欠料表无子表可读（sheets 为空）")
+            last_err = RuntimeError("子表列表接口错误: errcode=%s errmsg=%s" % (
+                data.get("errcode"), data.get("errmsg")))
+        else:
+            # rc=1 通常是企微频率限制；err 为空时补充可读提示
+            rc = r.returncode
+            err = (r.stderr or "").strip()
+            hint = ""
+            if rc == 1 and not err:
+                hint = "（企微频率限制，请稍后再试）"
+            last_err = RuntimeError("获取子表列表失败: rc=%s err=%s%s" % (
+                rc, err[:200], hint))
+        if attempt < retry:
+            wait = 2 * (2 ** (attempt - 1))  # 2s, 4s, 8s
+            print("[sync] 获取子表列表失败(第%d次)，%ds 后重试: %s" % (
+                attempt, wait, last_err))
+            time.sleep(wait)
+    raise last_err
 
 
 def _fetch_sheet_csv(sheet_id, timeout=120, retry=3):
@@ -302,7 +358,7 @@ def _csv_to_markdown(sheet_title, csv_text):
     return "\n".join(lines), archived
 
 
-def fetch_markdown(max_retry=2, inter_sheet_delay=1.5):
+def fetch_markdown(max_retry=3, inter_sheet_delay=2.0):
     """新版：用 wecom-cli sheet API 拉取所有子表，CSV → markdown → parse_markdown。
 
     失败时整体重试 max_retry 次（任一子表读取失败都触发整次重试）。

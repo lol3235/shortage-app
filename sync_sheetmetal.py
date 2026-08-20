@@ -19,6 +19,7 @@ from datetime import datetime
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import db  # noqa: E402
+import sync  # noqa: E402  # 复用失效代理清理与跨平台 creationflags 处理
 
 
 def _win_subprocess_kwargs():
@@ -200,6 +201,7 @@ def fetch_via_kdocs_cli():
         try:
             p = subprocess.run(cmd, capture_output=True, text=True, timeout=120,
                                encoding="utf-8", errors="replace",
+                               env=sync._clean_env_for_subprocess(),
                                **_win_subprocess_kwargs())
         except FileNotFoundError:
             raise RuntimeError("未找到 kdocs-cli（%s），请先安装并 `kdocs-cli auth login`" % KDOCS_CLI)

@@ -442,10 +442,15 @@ def _file_hash(path):
 
 
 def _run_git(cmd, check=True):
-    """运行 git 命令，使用探测到的 GIT_EXE 绝对路径，避免 pythonw PATH 不全。"""
+    """运行 git 命令，使用探测到的 GIT_EXE 绝对路径，避免 pythonw PATH 不全。
+
+    同时用 sync._clean_env_for_subprocess() 清理失效代理环境变量，
+    避免 git 因 HTTP_PROXY/HTTPS_PROXY 指向未运行代理而推送失败。
+    """
     real_cmd = [GIT_EXE] + cmd[1:]
     r = subprocess.run(real_cmd, cwd=HERE, capture_output=True, text=True,
                        encoding="utf-8", errors="replace",
+                       env=sync._clean_env_for_subprocess(),
                        **_win_subprocess_kwargs())
     if check and r.returncode != 0:
         raise RuntimeError("git %s failed: %s" % (cmd[1], r.stderr or r.stdout))
@@ -469,6 +474,7 @@ def _git_push_seed():
             [GIT_EXE, "commit", "-m", msg, "data/seed.sql", "data/seed_sheetmetal.sql"],
             cwd=HERE, capture_output=True, text=True,
             encoding="utf-8", errors="replace",
+            env=sync._clean_env_for_subprocess(),
             **_win_subprocess_kwargs())
         if commit_r.returncode != 0:
             out = (commit_r.stdout + commit_r.stderr).lower()
@@ -486,6 +492,7 @@ def _git_push_seed():
         # Windows 下带 CREATE_NO_WINDOW，避免弹出黑窗（git.exe 是控制台程序）
         subprocess.run([GIT_EXE, "remote", "set-url", "origin", GITHUB_REPO],
                        cwd=HERE, capture_output=True,
+                       env=sync._clean_env_for_subprocess(),
                        **_win_subprocess_kwargs())
 
 
