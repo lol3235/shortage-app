@@ -13,6 +13,7 @@
 import os
 import sys
 import json
+import time
 import subprocess
 from datetime import datetime
 
@@ -28,9 +29,29 @@ def _win_subprocess_kwargs():
         return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
     return {}
 
+
+def _detect_kdocs_cli():
+    """探测 kdocs-cli 路径：环境变量 KDOCS_CLI 优先，其次常见安装位置，最后 PATH。
+
+    避免 kdocs-cli 升级/移动路径后，自动同步因 KDOCS_CLI 失效而误报「未找到」。
+    """
+    env = os.environ.get("KDOCS_CLI", "").strip()
+    if env and os.path.exists(env):
+        return env
+    cands = [
+        r"C:/Users/Apua/.local/bin/kdocs-cli.exe",
+        os.path.join(os.environ.get("USERPROFILE", ""), ".local", "bin", "kdocs-cli.exe"),
+        "kdocs-cli.exe",  # PATH 中的可执行
+    ]
+    for c in cands:
+        if c and os.path.exists(c):
+            return c
+    return cands[0]  # 都不存在时回退默认路径，由调用方报错
+
+
+KDOCS_CLI = _detect_kdocs_cli()
 KDOCS_FILE_ID = "HeqbtFcx3rMqYYFRpA9n1xZrPzbTeaL4X"
 KDOCS_URL = "https://www.kdocs.cn/l/csUkRQG8wIXk"
-KDOCS_CLI = os.environ.get("KDOCS_CLI", r"C:/Users/Apua/.local/bin/kdocs-cli.exe")
 
 # 两个明细分表配置（仅这两个分表是「条目级」明细，计入欠料；其余为汇总表，不计入）
 DETAIL_SHEETS = [
@@ -184,32 +205,46 @@ def _cli_to_rows(stdout):
     return parse_range_json(json.loads(stdout))
 
 
-def fetch_via_kdocs_cli():
+def fetch_via_kdocs_cli(retry=3, retry_delay=3):
     """通过本地 kdocs-cli 拉取两个明细分表，返回 [(sheet_name, rows), ...]。
 
     需要已 `kdocs-cli auth login`。失败时抛异常（由 sync_to_db 捕获，保留旧数据）。
+    对瞬态失败（kdocs-cli 升级窗口期 exe 被替换 / 网络抖动 / 服务端限流）做
+    retry 次递增退避重试（3s/6s/9s），避免偶发一次失败就让前端报「同步失败」。
     """
-    out = []
-    for s in DETAIL_SHEETS:
-        params = {
-            "file_id": KDOCS_FILE_ID,
-            "sheetId": s["worksheet_id"],
-            "range": {"rowFrom": 0, "rowTo": 200, "colFrom": 0, "colTo": 13},
-        }
-        cmd = [KDOCS_CLI, "sheet", "get-range-data", "--output", "json",
-               "--args", json.dumps(params, ensure_ascii=False)]
+    last_err = None
+    for attempt in range(1, retry + 1):
         try:
-            p = subprocess.run(cmd, capture_output=True, text=True, timeout=120,
-                               encoding="utf-8", errors="replace",
-                               env=sync._clean_env_for_subprocess(),
-                               **_win_subprocess_kwargs())
-        except FileNotFoundError:
-            raise RuntimeError("未找到 kdocs-cli（%s），请先安装并 `kdocs-cli auth login`" % KDOCS_CLI)
-        if p.returncode != 0:
-            raise RuntimeError("kdocs-cli 拉取 %s 失败: %s" % (
-                s["name"], (p.stderr or p.stdout or "")[:400]))
-        out.append((s["name"], _cli_to_rows(p.stdout)))
-    return out
+            out = []
+            for s in DETAIL_SHEETS:
+                params = {
+                    "file_id": KDOCS_FILE_ID,
+                    "sheetId": s["worksheet_id"],
+                    "range": {"rowFrom": 0, "rowTo": 200, "colFrom": 0, "colTo": 13},
+                }
+                cmd = [KDOCS_CLI, "sheet", "get-range-data", "--output", "json",
+                       "--args", json.dumps(params, ensure_ascii=False)]
+                try:
+                    p = subprocess.run(cmd, capture_output=True, text=True, timeout=120,
+                                       encoding="utf-8", errors="replace",
+                                       env=sync._clean_env_for_subprocess(),
+                                       **_win_subprocess_kwargs())
+                except FileNotFoundError:
+                    if attempt == retry:
+                        raise RuntimeError(
+                            "未找到 kdocs-cli（%s），请先安装并 `kdocs-cli auth login`" % KDOCS_CLI)
+                    raise
+                if p.returncode != 0:
+                    raise RuntimeError("kdocs-cli 拉取 %s 失败: %s" % (
+                        s["name"], (p.stderr or p.stdout or "")[:400]))
+                out.append((s["name"], _cli_to_rows(p.stdout)))
+            return out
+        except Exception as e:
+            last_err = e
+            print("[sheetmetal] 拉取失败(第%d/%d次): %s" % (attempt, retry, e))
+            if attempt < retry:
+                time.sleep(retry_delay * attempt)
+    raise last_err
 
 
 def sync_to_db():
