@@ -217,6 +217,7 @@ def fetch_via_kdocs_cli(retry=3, retry_delay=3):
     retry 次递增退避重试（3s/6s/9s），避免偶发一次失败就让前端报「同步失败」。
     """
     last_err = None
+    kdocs_token = os.environ.get("KDOCS_TOKEN", "").strip() or os.environ.get("KINGSOFT_DOCS_TOKEN", "").strip()
     for attempt in range(1, retry + 1):
         try:
             out = []
@@ -226,8 +227,11 @@ def fetch_via_kdocs_cli(retry=3, retry_delay=3):
                     "sheetId": s["worksheet_id"],
                     "range": {"rowFrom": 0, "rowTo": 200, "colFrom": 0, "colTo": 13},
                 }
-                cmd = [KDOCS_CLI, "sheet", "get-range-data", "--output", "json",
-                       "--args", json.dumps(params, ensure_ascii=False)]
+                cmd = [KDOCS_CLI]
+                if kdocs_token:
+                    cmd += ["--token", kdocs_token]
+                cmd += ["sheet", "get-range-data", "--output", "json",
+                        "--args", json.dumps(params, ensure_ascii=False)]
                 try:
                     p = subprocess.run(cmd, capture_output=True, text=True, timeout=120,
                                        encoding="utf-8", errors="replace",
