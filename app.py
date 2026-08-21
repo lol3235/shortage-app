@@ -458,11 +458,14 @@ def _run_git(cmd, check=True):
 
 
 def _git_push_seed():
-    """把 data/seed.sql 提交并推送到 GitHub，触发 Render 重新部署。"""
+    """把 data/seed.sql 提交并推送到 GitHub，触发 Render 重新部署。
+
+    返回 True = 成功，False = 失败（失败时 meta 不变，下次循环仍会尝试）。
+    """
     token = GITHUB_TOKEN
     if not token:
         print("[auto-sync] 未配置 GITHUB_TOKEN，跳过自动推送")
-        return
+        return False
     authed_repo = GITHUB_REPO.replace("https://", "https://%s@" % token)
     try:
         _run_git(["git", "config", "user.email", "app@local.dev"], check=False)
@@ -480,13 +483,15 @@ def _git_push_seed():
             out = (commit_r.stdout + commit_r.stderr).lower()
             if "nothing to commit" in out or "no changes" in out:
                 print("[auto-sync] seed 无变化，无需提交")
-                return
+                return False
             raise RuntimeError("git commit failed: %s" % (commit_r.stderr or commit_r.stdout))
         _run_git(["git", "push", "origin", "main"])
         print("[auto-sync] seed 已推送，Render 将自动重新部署")
+        return True
     except Exception as e:
         print("[auto-sync] 推送失败: %s (git=%s PATH=%s)" % (
             e, GIT_EXE, os.environ.get("PATH", "")[:300]))
+        return False
     finally:
         # 推送完成后恢复不含 token 的 remote URL
         # Windows 下带 CREATE_NO_WINDOW，避免弹出黑窗（git.exe 是控制台程序）
@@ -516,32 +521,27 @@ def _biz_hash(text):
 
 
 def _export_and_check_seed(path, exporter, db_path, meta_key, sm=False):
-    """导出 seed，比较「业务签名」是否变化；并把签名持久化到对应 meta 表。
+    """导出 seed，比较「业务签名」是否变化，返回 (changed, new_biz_hash)。
 
-    返回值 True = 业务数据有变化（需要 commit/push）；False = 仅时间戳变化。
-    签名存 meta：欠料库存 meta 表（meta_key=seed_biz_hash），
-    钣金库存 meta_sheetmetal 表（meta_key=sm_seed_biz_hash），进程重启不丢。
+    注意：本函数**不写 meta**，仅计算。写入 meta 由调用方在推送成功后执行，
+    避免推送失败时 meta 提前更新导致后续循环永远跳过。
     """
     exporter(db_path, path)
     try:
         with open(path, encoding="utf-8") as f:
             text = f.read()
     except OSError:
-        return True  # 读不到文件按有变化处理，至少推一次
+        return True, None  # 读不到文件按有变化处理
     bh = _biz_hash(text)
-    if sm:
-        prev = db.get_sheetmetal_meta(db_path).get(meta_key)
-        db.set_sheetmetal_meta(meta_key, bh, path=db_path)
-    else:
-        prev = db.get_meta(db_path).get(meta_key)
-        db.set_meta(meta_key, bh, path=db_path)
-    return prev != bh
+    prev = db.get_sheetmetal_meta(db_path).get(meta_key) if sm else db.get_meta(db_path).get(meta_key)
+    return prev != bh, bh
 
 
 def _auto_sync_loop():
-    """后台循环：定时同步 -> 导出 seed -> 有变化则 push -> Render 自动重部署。
+    """后台循环：定时同步 -> 导出 seed -> 有变化则 push -> 推送成功后更新 meta。
 
     同时处理「欠料（企业微信）」与「钣金欠料（金山文档）」两套独立数据。
+    注意：meta 业务签名仅在推送成功后写入，避免推送失败时签名提前更新导致后续循环跳过。
     """
     if AUTO_SYNC_INTERVAL <= 0:
         return
@@ -549,29 +549,39 @@ def _auto_sync_loop():
             and not os.path.exists(sync_sheetmetal.KDOCS_CLI)):
         print("[auto-sync] 未检测到 wecom-cli / kdocs-cli，跳过自动同步")
         return
-    print("[auto-sync] 每 %d 秒自动同步一次；数据变化时推送 seed" % AUTO_SYNC_INTERVAL)
+    print("[auto-sync] 每 %d 秒自动同步一次；数据变化且推送成功后更新 meta" % AUTO_SYNC_INTERVAL)
     while True:
         time.sleep(AUTO_SYNC_INTERVAL)
-        changed = False
         try:
+            changed = False
+            pushed = False
             # —— 欠料（企业微信）——
             r1 = do_sync()
             if r1.get("ok"):
-                if _export_and_check_seed(SEED_PATH, db.export_seed_sql, DB_PATH,
-                                          "seed_biz_hash"):
+                need_push, bh1 = _export_and_check_seed(SEED_PATH, db.export_seed_sql, DB_PATH,
+                                                        "seed_biz_hash")
+                if need_push:
                     changed = True
             else:
                 print("[auto-sync] 欠料同步未成功: %s" % (r1.get("error") or r1.get("message")))
             # —— 钣金欠料（金山文档）——
             r2 = do_sync_sheetmetal()
             if r2.get("ok"):
-                if _export_and_check_seed(SHEETMETAL_SEED, db.export_sheetmetal_seed_sql,
-                                          SHEETMETAL_DB, "sm_seed_biz_hash", sm=True):
+                need_push2, bh2 = _export_and_check_seed(SHEETMETAL_SEED, db.export_sheetmetal_seed_sql,
+                                                          SHEETMETAL_DB, "sm_seed_biz_hash", sm=True)
+                if need_push2:
                     changed = True
             else:
                 print("[auto-sync] 钣金同步未成功: %s" % (r2.get("error") or r2.get("message")))
+            # —— 推送 ——
             if changed and AUTO_GIT_PUSH:
-                _git_push_seed()
+                pushed = _git_push_seed()
+                if pushed:
+                    # 推送成功才更新 meta 签名，避免失败后签名提前更新
+                    db.set_meta("seed_biz_hash", bh1, path=DB_PATH)
+                    db.set_sheetmetal_meta("sm_seed_biz_hash", bh2, path=SHEETMETAL_DB)
+                else:
+                    print("[auto-sync] 本轮有变化但推送失败，meta 未更新，下轮继续尝试")
         except Exception as e:
             print("[auto-sync] 异常: %s" % e)
 
