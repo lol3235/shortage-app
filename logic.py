@@ -285,13 +285,14 @@ def brand_summary(items, kw):
         }
 
     total_qty = sum(int(i.get("欠料数量") or 0) for i in rows)
-    by_material = defaultdict(lambda: {"qty": 0, "name": "", "projects": set(), "status": Counter(), "sheets": Counter()})
+    by_material = defaultdict(lambda: {"qty": 0, "name": "", "model": "", "projects": set(), "status": Counter(), "sheets": Counter()})
     by_project = defaultdict(lambda: {"qty": 0, "status": Counter(), "sheets": Counter()})
     for i in rows:
         mc = i.get("物料编码") or "未知编码"
         sheet = i.get("sheet") or "未知"
         by_material[mc]["qty"] += int(i.get("欠料数量") or 0)
         by_material[mc]["name"] = i.get("物料名称") or ""
+        by_material[mc]["model"] = i.get("规格说明") or ""
         by_material[mc]["projects"].add(i.get("项目") or i.get("项目编码") or "未命名")
         by_material[mc]["status"][i.get("eta_status", "其他")] += 1
         by_material[mc]["sheets"][sheet] += 1
@@ -305,7 +306,7 @@ def brand_summary(items, kw):
         "rows": len(rows),
         "total_qty": total_qty,
         "by_material": sorted(
-            [{"mc": mc, "name": info["name"], "qty": info["qty"],
+            [{"mc": mc, "name": info["name"], "model": info["model"], "qty": info["qty"],
               "projects": len(info["projects"]), "status": dict(info["status"]),
               "sheets": _fmt_sheets(info["sheets"])}
              for mc, info in by_material.items()],
