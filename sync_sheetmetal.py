@@ -41,7 +41,11 @@ def _detect_kdocs_cli():
     cands = [
         r"C:/Users/Apua/.local/bin/kdocs-cli.exe",
         os.path.join(os.environ.get("USERPROFILE", ""), ".local", "bin", "kdocs-cli.exe"),
-        "kdocs-cli.exe",  # PATH 中的可执行
+        "kdocs-cli.exe",  # Windows: PATH 中的可执行
+        # Linux / macOS
+        "/usr/local/bin/kdocs-cli",
+        "/usr/bin/kdocs-cli",
+        "kdocs-cli",  # PATH 中的可执行（跨平台）
     ]
     for c in cands:
         if c and os.path.exists(c):

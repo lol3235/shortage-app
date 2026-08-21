@@ -39,7 +39,11 @@ def _detect_wecom_cli():
         r"C:\Users\Apua\.workbuddy\binaries\node\cli-connector-packages\wecom-cli.cmd",
         os.path.join(os.environ.get("USERPROFILE", ""), ".workbuddy", "binaries",
                      "node", "cli-connector-packages", "wecom-cli.cmd"),
-        "wecom-cli.cmd",  # PATH 中的可执行
+        "wecom-cli.cmd",  # Windows: PATH 中的可执行
+        # Linux / macOS
+        "/usr/bin/wecom-cli",
+        "/usr/local/bin/wecom-cli",
+        "wecom-cli",  # PATH 中的可执行（跨平台）
     ]
     for c in cands:
         if c and os.path.exists(c):
@@ -98,8 +102,6 @@ def can_sync_online():
     """当前环境是否可以在线拉取企微欠料表（本地 wecom-cli 或云端 API 凭证）。"""
     if _use_api_mode():
         return True
-    if sys.platform != "win32":
-        return False
     return os.path.exists(WECOM_CMD)
 
 
@@ -140,7 +142,10 @@ def _run_wecom(args, timeout=60):
     "creationflags is only supported on Windows platforms"。
     同时清理失效代理环境变量，避免 wecom-cli 走不可用的本地代理。
     """
-    cmd = [SYSTEM_CMD, "/c", WECOM_CMD] + args
+    if sys.platform == "win32":
+        cmd = [SYSTEM_CMD, "/c", WECOM_CMD] + args
+    else:
+        cmd = [WECOM_CMD] + args
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
                            encoding="utf-8", errors="replace",
@@ -652,10 +657,8 @@ def sync_to_db(offline_md=None, db_path=None):
     if not offline_md and not can_sync_online():
         raise RuntimeError(
             "当前环境无法在线同步企业微信欠料表：未配置企微开放 API 凭证，"
-            "且未检测到 wecom-cli（仅本地 Windows 可用）。"
-            "云端 Render 显示的是最近一次本地同步推送的 seed.sql 快照。"
-            "如需云端实时同步，请在 Render 环境变量中配置 WECOM_API_CORP_ID、"
-            "WECOM_API_CORP_SECRET、WECOM_TABLE_DOCID。"
+            "且未检测到 wecom-cli（请确认已 `npm install -g @wecom/cli` 并 `wecom-cli auth init` 完成扫码授权）。"
+            "若运行在 Render 等无 CLI 登录态的云端，显示的是最近一次同步推送的 seed.sql 快照。"
         )
     if offline_md:
         md = open(offline_md, encoding="utf-8", errors="replace").read()
