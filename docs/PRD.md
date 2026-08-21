@@ -1,8 +1,8 @@
 # 欠料看板本地 APP — 产品需求文档（PRD）
 
-> 版本：v1.6.3
-> 日期：2026-08-19
-> 状态：已上线（本地 APP + 云端 Render 双形态运行；功能持续迭代中；新增钣金欠料独立模块；UI 接入壹月科技品牌 VI + 毛玻璃；v1.6.5 修复 Render 跨平台同步崩溃）
+> 版本：v1.6.6
+> 日期：2026-08-21
+> 状态：已上线（本地 APP + 云端 Render 双形态运行；**腾讯云轻量应用服务器自托管形态规划中（部分就绪：服务器已开通、系统定型 OpenCloudOS 9.6 + 宝塔、Node.js 20 已装，待部署应用与 CLI 登录）**；功能持续迭代中；新增钣金欠料独立模块；UI 接入壹月科技品牌 VI + 毛玻璃；v1.6.5 修复 Render 跨平台同步崩溃）
 
 ---
 
@@ -250,9 +250,10 @@
 
 ## 9. 部署与运行架构（v1.1 新增，v1.2 补充人工覆盖）
 
-### 9.1 两种运行形态
+### 9.1 三种运行形态（含规划中自托管）
 - **本地 APP**：Windows 上 `pythonw` 后台常驻（注册表 `HKCU\Run\ShortageApp` 登录自启，无窗、不弹黑窗），访问 `http://localhost:8765`。
 - **云端部署**：Render Web Service（`https://shortage-app.onrender.com/`），Auto-Deploy 开启；代码 push 或数据 `seed.sql` push 均触发重部署。
+- **自托管（规划中，部分就绪）**：腾讯云轻量应用服务器 Lighthouse（实例 `lhins-pgehtw8y`，ap-beijing，OpenCloudOS 9.6 + 宝塔面板，2C2G/50G SSD/4Mbps）。已装 Node.js 20 LTS。目标：服务器自身成为同步源（见 §9.2），云端真正在线同步，不再依赖本地电脑常开与 `seed.sql` 推送 hack。**当前尚未部署应用代码、未安装/登录 wecom-cli 与 kdocs-cli、未配 systemd 与 nginx**，`wecom-cli init` / `kdocs-cli auth login` 为交互式（扫码/浏览器），须用户在服务器终端完成。
 
 ### 9.2 数据同步与一致性
 - 本地为**唯一写入源**：`app.py` 后台定时从企微同步 → 写入 SQLite → 导出 `seed.sql` 快照 → 推送 GitHub。
@@ -261,6 +262,7 @@
 - 可插拔数据源：配置 `WECOM_API_CORP_ID/SECRET/TABLE_DOCID` 时云端可直连企微 API；未配置则回退 wecom-cli（本地）。
 - **失效代理自动清理（v1.6.5）**：调用 wecom-cli / kdocs-cli / git 前，由 `sync._clean_env_for_subprocess()` 检测并剔除指向不可用端口的 `HTTP_PROXY/HTTPS_PROXY/ALL_PROXY`，避免旧代理软件遗留环境变量导致外部命令连不上企微/GitHub。
 - **跨平台兼容（v1.6.5）**：所有 `subprocess.run` 调用仅在 Windows 上传 `CREATE_NO_WINDOW`；Linux/macOS（Render）不再因 `creationflags` 参数崩溃。云端未配置 API 且未检测到 wecom-cli 时，`sync.can_sync_online()` 返回 `False`，前端显示「快照模式」提示，禁止无效重试。
+- **自托管形态下的同步源变更（规划中）**：当部署到腾讯云 Lighthouse 且两套 CLI 已安装并登录后，**服务器自身即成为唯一写入源**——`app.py` 直接在服务器上每 30 秒同步写本地 SQLite，前端「同步」按钮真正可用；此时不再需要「本地 push `seed.sql` → 触发 Render 重部署」的快照链路，应关闭 seed.sql 自动推送（`app.py` 的 `_export_and_check_seed` 调用），改为纯服务端运行。路径配置：Linux 上 `KDOCS_CLI` 须用环境变量指向 `/usr/bin/kdocs-cli`（代码默认 Windows 路径在 Linux 不存在），wecom-cli 走 `sync._detect_wecom_cli()` 的 Linux 候选路径；进程守护改用 systemd / 宝塔 supervisor 替代 pythonw + 看门狗。
 
 ### 9.3 已知限制
 - 云端数据实时性依赖本地进程常开 + 自动推送；本地关机期间云端数据为最近一次快照。
