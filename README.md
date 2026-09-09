@@ -3,6 +3,11 @@
 本地化欠料跟踪看板。支持总览、按项目 / 物料 / 品牌汇总、交期对比、状态过滤。
 数据源为企微欠料在线表，本地 SQLite 持久化（重启不丢）。
 
+> **⚠️ 部署状态（2026-09-09 实测）**
+> - 原 Render 实例 `https://shortage-app.onrender.com/` **已不可达**（HTTP 请求超时）。
+> - 腾讯云轻量应用服务器（实例 `lhins-pgehtw8y`）已开通，但**本应用代码尚未部署**；`82.156.246.5:80` 当前返回的是另一个应用，非欠料看板。
+> - 因此**当前唯一可用形态是本地运行**（`start.bat`）。下文 Render 相关章节仅作历史参考。
+
 ## 技术栈
 - 后端：`app.py`（Python 标准库 `http.server`，零第三方依赖）
 - 数据库：`data/shortage.db`（SQLite）
@@ -14,7 +19,7 @@
 2. 点右上角「🔄 同步」从企微拉取最新数据
 3. 双击 `stop.bat` 停止
 
-## 部署到 Render（公网访问）
+## 部署到 Render（历史方案，当前不可用）
 1. 把本仓库推到 GitHub（已推送：`github.com/lol3235/shortage-app`）
 2. 打开 https://dashboard.render.com → New → Blueprint
 3. 连接你的 GitHub 仓库 `lol3235/shortage-app`
@@ -38,7 +43,7 @@ AUTO_GIT_PUSH=1
 ```
 
 3. 双击 `start.bat` 启动。后台会每 30 秒执行一次同步，数据有变化时自动 commit/push `data/seed.sql`
-4. Render 上对应的 Web Service 会自动更新（Blueprint 已开启自动同步）
+4. Render 上对应的 Web Service 会自动更新（Blueprint 已开启自动同步）——**该实例现已失效，此步不再生效**
 
 > `.env` 已被 `.gitignore` 排除，不会误提交到仓库。TOKEN 泄露后请立即到 GitHub 撤销并重新生成。
 
